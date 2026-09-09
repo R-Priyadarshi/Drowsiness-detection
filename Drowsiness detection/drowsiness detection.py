@@ -81,10 +81,22 @@ while True:
         cv2.putText(frame, f"R_Close_Prob: {r_closed_prob:.2f}", (10, 30), font, 1, (255, 255, 0), 1, cv2.LINE_AA)
         cv2.putText(frame, f"L_Close_Prob: {l_closed_prob:.2f}", (10, 60), font, 1, (255, 255, 0), 1, cv2.LINE_AA)
         
-        if (not r_detected or r_closed_prob < 0.5) and (not l_detected or l_closed_prob < 0.5):
-            state = "Open"
-        else:
-            state = "Closed"
+        if r_detected and l_detected:
+            # If BOTH eyes are detected, BOTH must be classified as closed to trigger drowsiness
+            if r_closed_prob >= 0.5 and l_closed_prob >= 0.5:
+                state = "Closed"
+            else:
+                state = "Open"
+        elif r_detected:
+            if r_closed_prob >= 0.5:
+                state = "Closed"
+            else:
+                state = "Open"
+        elif l_detected:
+            if l_closed_prob >= 0.5:
+                state = "Closed"
+            else:
+                state = "Open"
     else:
         if len(faces) > 0:
             state = "Closed"
