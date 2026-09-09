@@ -28,7 +28,8 @@ def main():
         sys.executable, "-m", "PyInstaller",
         "--onefile",
         "--windowed", # Don't open a console window
-        "--name", "DrowsinessDetector"
+        "--name", "DrowsinessDetector",
+        "--collect-all", "cv2"
     ]
     
     for data in data_files:
