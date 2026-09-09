@@ -71,31 +71,25 @@ while True:
         lpred = model.predict(l_eye)
         break
         
-    state = "Open"
-    
-    # If no face is detected, we could say "No Face"
-    if len(faces) == 0:
-        state = "No Face"
+    r_detected = rpred is not None
+    l_detected = lpred is not None
+
+    if r_detected or l_detected:
+        r_closed_prob = rpred[0][0] if r_detected else 0.0
+        l_closed_prob = lpred[0][0] if l_detected else 0.0
+        
+        cv2.putText(frame, f"R_Close_Prob: {r_closed_prob:.2f}", (10, 30), font, 1, (255, 255, 0), 1, cv2.LINE_AA)
+        cv2.putText(frame, f"L_Close_Prob: {l_closed_prob:.2f}", (10, 60), font, 1, (255, 255, 0), 1, cv2.LINE_AA)
+        
+        if (not r_detected or r_closed_prob < 0.5) and (not l_detected or l_closed_prob < 0.5):
+            state = "Open"
+        else:
+            state = "Closed"
     else:
-        # Face detected, let's check eyes
-        if rpred is None and lpred is None:
-            # Eyes not found by Haar cascade - usually means they are closed or looking heavily away
+        if len(faces) > 0:
             state = "Closed"
         else:
-            r_closed_prob = rpred[0][0] if rpred is not None else 0.0
-            l_closed_prob = lpred[0][0] if lpred is not None else 0.0
-            
-            # Display the raw probabilities on screen for debugging
-            cv2.putText(frame, f"R_Close_Prob: {r_closed_prob:.2f}", (10, 30), font, 1, (255, 255, 0), 1, cv2.LINE_AA)
-            cv2.putText(frame, f"L_Close_Prob: {l_closed_prob:.2f}", (10, 60), font, 1, (255, 255, 0), 1, cv2.LINE_AA)
-            
-            # If the probability of being closed is high (> 0.5) for EITHER eye detected
-            # Actually, standard logic requires BOTH eyes to be evaluated. 
-            # If both probabilities are < 0.5, they are open.
-            if (rpred is None or r_closed_prob < 0.5) and (lpred is None or l_closed_prob < 0.5):
-                state = "Open"
-            else:
-                state = "Closed"
+            state = "No Face"
 
     if state == "Open":
         score -= 1
