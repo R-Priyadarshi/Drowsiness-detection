@@ -48,48 +48,69 @@ while True:
     for (x, y, w, h) in faces:
         cv2.rectangle(frame, (x, y), (x + w, y + h), (100, 100, 100), 1)
 
+    rpred = None
+    lpred = None
+
     for (x, y, w, h) in right_eye:
         r_eye = frame[y:y + h, x:x + w]
-        count += 1
         r_eye = cv2.cvtColor(r_eye, cv2.COLOR_BGR2GRAY)
         r_eye = cv2.resize(r_eye, (24, 24))
         r_eye = r_eye / 255
         r_eye = r_eye.reshape(24, 24, -1)
         r_eye = np.expand_dims(r_eye, axis=0)
         rpred = model.predict(r_eye)
-        if rpred[0][0] == 1:
-            lbl = 'Open'
-        if rpred[0][0] == 0:
-            lbl = 'Closed'
         break
 
     for (x, y, w, h) in left_eye:
         l_eye = frame[y:y + h, x:x + w]
-        count += 1
         l_eye = cv2.cvtColor(l_eye, cv2.COLOR_BGR2GRAY)
         l_eye = cv2.resize(l_eye, (24, 24))
         l_eye = l_eye / 255
         l_eye = l_eye.reshape(24, 24, -1)
         l_eye = np.expand_dims(l_eye, axis=0)
         lpred = model.predict(l_eye)
-        if lpred[0][0] == 1:
-            lbl = 'Open'
-        if lpred[0][0] == 0:
-            lbl = 'Closed'
         break
-    if isinstance(rpred, (list, tuple)) and isinstance(lpred, (list, tuple)):
-        print(lpred[0][0])
-        print(rpred[0][0])
-    if rpred is not None and lpred is not None and rpred[0][0] < 0.7 and lpred[0][0] < 0.7:
+        
+    state = "Open"
+    
+    # If no face is detected, we could say "No Face"
+    if len(faces) == 0:
+        state = "No Face"
+    else:
+        # Face detected, let's check eyes
+        if rpred is None and lpred is None:
+            # Eyes not found by Haar cascade - usually means they are closed or looking heavily away
+            state = "Closed"
+        else:
+            r_closed_prob = rpred[0][0] if rpred is not None else 0.0
+            l_closed_prob = lpred[0][0] if lpred is not None else 0.0
+            
+            # Display the raw probabilities on screen for debugging
+            cv2.putText(frame, f"R_Close_Prob: {r_closed_prob:.2f}", (10, 30), font, 1, (255, 255, 0), 1, cv2.LINE_AA)
+            cv2.putText(frame, f"L_Close_Prob: {l_closed_prob:.2f}", (10, 60), font, 1, (255, 255, 0), 1, cv2.LINE_AA)
+            
+            # If the probability of being closed is high (> 0.5) for EITHER eye detected
+            # Actually, standard logic requires BOTH eyes to be evaluated. 
+            # If both probabilities are < 0.5, they are open.
+            if (rpred is None or r_closed_prob < 0.5) and (lpred is None or l_closed_prob < 0.5):
+                state = "Open"
+            else:
+                state = "Closed"
+
+    if state == "Open":
         score -= 1
         cv2.putText(frame, "Open", (10, height - 20), font, 1, (255, 255, 255), 1, cv2.LINE_AA)
-    else:
+    elif state == "Closed":
         score += 1
         cv2.putText(frame, "Closed", (10, height - 20), font, 1, (255, 255, 255), 1, cv2.LINE_AA)
+    else:
+        score += 1 # Driver missing!
+        cv2.putText(frame, "No Face", (10, height - 20), font, 1, (255, 255, 255), 1, cv2.LINE_AA)
 
     if score < 0:
         score = 0
     cv2.putText(frame, 'Score:' + str(score), (100, height - 20), font, 1, (255, 255, 255), 1, cv2.LINE_AA)
+    
     if score > 30:
         # person is feeling sleepy so we beep the alarm
         cv2.imwrite(os.path.join(path, 'image.jpg'), frame)
