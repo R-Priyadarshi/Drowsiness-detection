@@ -104,6 +104,11 @@ while True:
             if thicc < 2:
                 thicc = 2
         cv2.rectangle(frame, (0, 0), (width, height), (0, 0, 255), thicc)
+    else:
+        try:
+            sound.stop()
+        except:
+            pass
     cv2.imshow('frame', frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
