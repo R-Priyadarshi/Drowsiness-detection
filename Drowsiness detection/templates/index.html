@@ -646,6 +646,11 @@
             animation: pulse-bg 1s infinite alternate;
         }
 
+        body:not(.danger-state) {
+            background-color: var(--bg-color) !important;
+            animation: none !important;
+        }
+
         body.danger-state .status-dot {
             background: var(--danger);
             box-shadow: 0 0 15px var(--danger);
@@ -1081,7 +1086,24 @@
                     statusDot.style.boxShadow = "none";
                     document.body.classList.remove('danger-state');
                 });
-        }, 150); // Fast 150ms updates for UI responsiveness
+        }, 150);
+
+        // Auto-reconnect video feed if MJPEG stream drops
+        (function setupVideoReconnect() {
+            const vid = document.getElementById('video-feed');
+            if (!vid) return;
+            let reconnectTimer = null;
+            
+            vid.addEventListener('error', function() {
+                const dataSrc = vid.getAttribute('data-src');
+                if (dataSrc && dataSrc.length > 0) {
+                    clearTimeout(reconnectTimer);
+                    reconnectTimer = setTimeout(() => {
+                        vid.src = dataSrc + '?' + Date.now();
+                    }, 1000);
+                }
+            });
+        })();
 
         
         // --- 1. Draggable Dashboard Layout ---
