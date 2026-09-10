@@ -117,31 +117,8 @@ def generate_frames():
         if score < 0:
             score = 0
             
-        # --- Restore original OpenCV overlays ---
-        font = cv2.FONT_HERSHEY_COMPLEX_SMALL
-        cv2.putText(frame, f"R_Close_Prob: {r_prob:.2f}", (10, 30), font, 1, (255, 255, 0), 1, cv2.LINE_AA)
-        cv2.putText(frame, f"L_Close_Prob: {l_prob:.2f}", (10, 60), font, 1, (255, 255, 0), 1, cv2.LINE_AA)
-        
-        # Black background for bottom text
-        cv2.rectangle(frame, (0, height - 40), (250, height), (0, 0, 0), cv2.FILLED)
-        cv2.putText(frame, f"{state}", (10, height - 15), font, 1, (255, 255, 255), 1, cv2.LINE_AA)
-        cv2.putText(frame, f"Score:{score}", (100, height - 15), font, 1, (255, 255, 255), 1, cv2.LINE_AA)
-        
-        # Global for thickness
-        global thicc
-        if 'thicc' not in globals():
-            thicc = 2
-            
-        # Audio logic and red border
+        # Audio logic
         if score > 30:
-            # Draw red border around frame like old interface
-            if thicc < 16:
-                thicc += 2
-            else:
-                thicc = thicc - 2
-                if thicc < 2:
-                    thicc = 2
-            cv2.rectangle(frame, (0, 0), (width, height), (0, 0, 255), thicc)
             try:
                 sound.play()
             except:
@@ -152,6 +129,21 @@ def generate_frames():
             except:
                 pass
                 
+        # Add the original OpenCV interface overlays directly onto the frame
+        font = cv2.FONT_HERSHEY_COMPLEX_SMALL
+        
+        # Right & Left Eye Probabilities (Top Left in Cyan)
+        cv2.putText(frame, f"R_Close_Prob: {r_prob:.2f}", (10, 20), font, 1, (255, 255, 0), 1, cv2.LINE_AA)
+        cv2.putText(frame, f"L_Close_Prob: {l_prob:.2f}", (10, 40), font, 1, (255, 255, 0), 1, cv2.LINE_AA)
+
+        # Closed Score (Bottom Left with Black Background)
+        cv2.rectangle(frame, (0, height - 40), (200, height), (0, 0, 0), thickness=cv2.FILLED)
+        cv2.putText(frame, f"Closed Score:{score}", (10, height - 15), font, 1, (255, 255, 255), 1, cv2.LINE_AA)
+
+        # Draw red border if alarm is triggered
+        if score > 30:
+            cv2.rectangle(frame, (0, 0), (width, height), (0, 0, 255), 10)
+            
         # We don't use cv2.imshow anymore. Encode for web MJPEG stream.
         ret, buffer = cv2.imencode('.jpg', frame)
         frame_bytes = buffer.tobytes()
