@@ -6,6 +6,7 @@ import sys
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import logging
 logging.getLogger('tensorflow').setLevel(logging.FATAL)
+logging.getLogger('werkzeug').setLevel(logging.ERROR)
 
 from flask import Flask, render_template, Response, jsonify
 from keras.models import load_model
@@ -56,7 +57,7 @@ reye_cascade = cv2.CascadeClassifier(resource_path(os.path.join('haar cascade fi
 try:
     model = load_model(resource_path(os.path.join('models','cnnCat2.h5')))
     # Warmup prediction to prevent first-frame lag spike
-    model.predict(np.zeros((1, 24, 24, 1)), verbose=0)
+    model(np.zeros((1, 24, 24, 1)), training=False)
 except Exception as e:
     print(f"Warning: AI Model could not be loaded. Eye detection disabled. {e}")
     model = None
@@ -317,7 +318,7 @@ def generate_frames():
             
             with model_lock:
                 try:
-                    rpred = model.predict(r_eye, verbose=0)
+                    rpred = model(r_eye, training=False).numpy()
                 except Exception:
                     rpred = np.array([[1.0]]) # Fallback to open if model crashes
                     
@@ -342,7 +343,7 @@ def generate_frames():
             
             with model_lock:
                 try:
-                    lpred = model.predict(l_eye, verbose=0)
+                    lpred = model(l_eye, training=False).numpy()
                 except Exception:
                     lpred = np.array([[1.0]]) # Fallback
                     
