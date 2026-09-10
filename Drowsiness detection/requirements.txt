@@ -3,5 +3,5 @@ keras
 tensorflow
 numpy
 pygame
-mediapipe
+mediapipe==0.10.14
 flask
