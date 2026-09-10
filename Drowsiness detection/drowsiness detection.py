@@ -46,6 +46,7 @@ state = "Open"
 r_prob = 0.0
 l_prob = 0.0
 debug_mode = False
+system_running = True
 
 # Analytics and Threat State
 session_start_time = time.time()
@@ -104,6 +105,8 @@ def generate_frames():
     cap = cv2.VideoCapture(0)
     
     while True:
+        if not system_running:
+            break
         ret, frame = cap.read()
         if not ret:
             break
@@ -392,7 +395,9 @@ def update_settings():
 @app.route('/stop_system', methods=['POST'])
 def stop_system():
     global session_start_time, total_alarms_prevented, yawn_count, score
-    global bpm, is_stressed
+    global bpm, is_stressed, system_running
+    
+    system_running = False
     
     # Calculate totals
     uptime = time.time() - session_start_time
