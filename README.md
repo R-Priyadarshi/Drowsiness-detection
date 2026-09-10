@@ -44,13 +44,6 @@ Unlike simple blink detectors, AURA is a **full cognitive telemetry platform** t
 - **Dual-Engine Redundancy** — Haar Cascades (primary) + MediaPipe EAR (fallback) ensure detection works even with glasses.
 - **Zero Configuration** — Just run the executable. No Python, no drivers, no setup.
 
----
-
-## 🖥️ Screenshots
-
-<p align="center">
-  <img src="Drowsiness detection/image.jpg" alt="AURA Dashboard" width="700">
-</p>
 
 ---
 
