@@ -1,0 +1,26 @@
+# Build artifacts (too large for GitHub)
+Drowsiness detection/build/
+Drowsiness detection/dist/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+*.egg
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Scratch/test files
+Drowsiness detection/*.spec
+Drowsiness detection/fix_*.py
+Drowsiness detection/test*.py
+Drowsiness detection/mock_*.py
+Drowsiness detection/add_*.py
+Drowsiness detection/*.old

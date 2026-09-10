@@ -147,7 +147,12 @@ def generate_frames():
         
         with camera_lock:
             ret, frame = cap.read()
-            
+        
+        # Check if frame is black (hardware/driver glitch)
+        if ret and frame is not None:
+            if np.mean(frame) < 1.0:
+                ret = False # Force reconnect
+
         if not ret:
             # Fallback: No camera frame
             import numpy as np
@@ -399,16 +404,20 @@ def generate_frames():
                 else:
                     state = "Open"
         else:
-            if len(faces) > 0:
+            if results.multi_face_landmarks:
                 # Haar cascade failed (e.g. glasses). Fallback to MediaPipe EAR
                 if 'ear' in locals() and ear < 0.22:
                     state = "Closed"
                 else:
                     state = "Open"
+            elif len(faces) > 0:
+                state = "Open"
             else:
                 state = "No Face"
 
-        if state == "Open":
+        if state == "Open" or state == "No Face":
+            # Don't increase drowsiness score if no face is detected.
+            # (Distraction score handles missing face separately).
             score -= 1
         else:
             score += 1
@@ -416,6 +425,10 @@ def generate_frames():
 
         if score < 0:
             score = 0
+            
+        # Reset IoT trigger if user wakes up
+        if score < 15:
+            iot_triggered = False
             
         # Audio logic & Analytics
         if score > 30:
