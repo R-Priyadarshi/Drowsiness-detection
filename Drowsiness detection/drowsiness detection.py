@@ -148,6 +148,7 @@ def generate_frames():
             # --- Yawn Calculation (Adaptive) ---
             if mar > baseline_mar + 0.35:
                 yawn_score += 1
+                if yawn_score > 30: yawn_score = 30 # Cap max score
                 if yawn_score > 15: # half a second
                     is_yawning = True
                     try: sound_yawn.play()
@@ -163,6 +164,7 @@ def generate_frames():
             # --- Emotion / Stress Detection ---
             if brow_dist < baseline_brow_dist * 0.8: # Furrowed brows
                 stress_score += 1
+                if stress_score > 45: stress_score = 45 # Cap max score
                 if stress_score > 30: # 1 second of intense furrow
                     is_stressed = True
             else:
@@ -210,6 +212,7 @@ def generate_frames():
             # Face lost - looking away
             distraction_score += 1
             
+        if distraction_score > 60: distraction_score = 60 # Cap max score
         if distraction_score > 45: # 1.5 seconds of distraction
             is_distracted = True
             try: sound_distracted.play()
@@ -298,6 +301,7 @@ def generate_frames():
             score -= 1
         else:
             score += 1
+            if score > 60: score = 60 # Cap max score
 
         if score < 0:
             score = 0
@@ -343,6 +347,8 @@ def generate_frames():
         frame_bytes = buffer.tobytes()
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+               
+    cap.release()
 
 @app.route('/')
 def index():
