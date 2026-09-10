@@ -94,7 +94,8 @@ bpm = 0
 iot_triggered = False
 last_iot_trigger_time = 0
 IOT_COOLDOWN = 10 # seconds
-iot_webhook_url = "http://127.0.0.1:5000/api/smart_car"
+# Will be set dynamically when the server starts
+iot_webhook_url = None
 
 
 def trigger_smart_cabin():
@@ -349,7 +350,7 @@ def generate_frames():
                     try:
                         rpred = model(r_eye, training=False).numpy()
                     except Exception:
-                        rpred = np.array([[1.0]])
+                        rpred = np.array([[0.0, 1.0]])  # Fallback: 0% closed, 100% open
                         
                 if debug_mode:
                     cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
@@ -374,7 +375,7 @@ def generate_frames():
                     try:
                         lpred = model(l_eye, training=False).numpy()
                     except Exception:
-                        lpred = np.array([[1.0]])
+                        lpred = np.array([[0.0, 1.0]])  # Fallback: 0% closed, 100% open
                         
                 if debug_mode:
                     cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
@@ -420,11 +421,13 @@ def generate_frames():
                 else:
                     state = "No Face"
 
-            if state == "Open" or state == "No Face":
+            if state == "Open":
                 score -= 1
-            else:
+            elif state == "Closed":
                 score += 1
                 if score > 60: score = 60
+            # "No Face" = hold score (don't increase OR decrease)
+            # This prevents score from falsely dropping when user briefly looks away
 
             if score < 0:
                 score = 0
@@ -439,12 +442,11 @@ def generate_frames():
                     total_alarms_prevented += 1
                 trigger_smart_cabin()
                 try:
-                    if score < 60:
+                    if score < 45:
                         sound.set_volume(0.5)
                     else:
                         sound.set_volume(1.0)
-                    if score % 15 == 0:
-                        sound.play()
+                    sound.play(loops=-1)  # Play continuously until stopped
                 except:
                     pass
             else:
@@ -554,8 +556,9 @@ def start_system():
     global session_start_time, total_alarms_prevented, yawn_count, score
     global bpm, is_stressed, system_running, distraction_score, yawn_score, stress_score
     global is_calibrating, calibration_frames, baseline_mar, baseline_brow_dist, rppg_buffer
+    global iot_triggered, is_yawning, is_distracted, state, r_prob, l_prob
     
-    # Reset all analytics
+    # Reset ALL state - nothing carries over from previous session
     session_start_time = time.time()
     total_alarms_prevented = 0
     yawn_count = 0
@@ -565,6 +568,12 @@ def start_system():
     stress_score = 0
     bpm = 0
     is_stressed = False
+    is_yawning = False
+    is_distracted = False
+    iot_triggered = False
+    state = "Open"
+    r_prob = 0.0
+    l_prob = 0.0
     
     # Reset calibration
     is_calibrating = True
@@ -624,6 +633,8 @@ def open_browser(port):
 
 if __name__ == '__main__':
     active_port = find_free_port()
+    # Set the IoT webhook URL to use the correct dynamic port
+    iot_webhook_url = f"http://127.0.0.1:{active_port}/api/smart_car"
     # Start the browser thread
     threading.Thread(target=open_browser, args=(active_port,), daemon=True).start()
     
