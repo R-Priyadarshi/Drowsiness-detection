@@ -8,6 +8,7 @@ from pygame import mixer
 import threading
 import webbrowser
 import time
+import mediapipe as mp
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -23,6 +24,12 @@ app = Flask(__name__, template_folder=resource_path('templates'))
 # Initialize Audio
 mixer.init()
 sound = mixer.Sound(resource_path("alarm.mp3"))
+sound_distracted = mixer.Sound(resource_path("distracted.wav"))
+sound_yawn = mixer.Sound(resource_path("yawn.wav"))
+
+# Initialize Mediapipe
+mp_face_mesh = mp.solutions.face_mesh
+face_mesh = mp_face_mesh.FaceMesh(max_num_faces=1, refine_landmarks=True, min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
 # Initialize Cascades
 face_cascade = cv2.CascadeClassifier(resource_path(os.path.join('haar cascade files','haarcascade_frontalface_alt.xml')))
@@ -39,8 +46,18 @@ r_prob = 0.0
 l_prob = 0.0
 debug_mode = False
 
+# Analytics and Threat State
+session_start_time = time.time()
+total_alarms_prevented = 0
+yawn_count = 0
+distraction_score = 0
+yawn_score = 0
+is_yawning = False
+is_distracted = False
+
 def generate_frames():
     global score, state, r_prob, l_prob, debug_mode
+    global total_alarms_prevented, yawn_count, distraction_score, yawn_score, is_yawning, is_distracted
     cap = cv2.VideoCapture(0)
     
     while True:
@@ -50,7 +67,59 @@ def generate_frames():
             
         height, width = frame.shape[:2]
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
+        # Mediapipe Face Mesh for Head Pose & Yawning
+        results = face_mesh.process(rgb_frame)
+        if results.multi_face_landmarks:
+            is_distracted = False
+            distraction_score -= 1
+            if distraction_score < 0: distraction_score = 0
+            
+            face_landmarks = results.multi_face_landmarks[0]
+            # Yawn Calculation (Mouth Aspect Ratio)
+            p_upper = face_landmarks.landmark[13]
+            p_lower = face_landmarks.landmark[14]
+            p_left = face_landmarks.landmark[78]
+            p_right = face_landmarks.landmark[308]
+            
+            mar = abs(p_upper.y - p_lower.y) / (abs(p_left.x - p_right.x) + 1e-6)
+            if mar > 0.6:
+                yawn_score += 1
+                if yawn_score > 15: # half a second
+                    is_yawning = True
+                    try: sound_yawn.play()
+                    except: pass
+                    if yawn_score == 16: yawn_count += 1
+            else:
+                yawn_score -= 1
+                if yawn_score < 0: yawn_score = 0
+                is_yawning = False
+                try: sound_yawn.stop()
+                except: pass
+                
+            # Head Pose (simplified pitch down)
+            p_nose = face_landmarks.landmark[1]
+            p_chin = face_landmarks.landmark[152]
+            p_forehead = face_landmarks.landmark[10]
+            face_height = p_chin.y - p_forehead.y
+            nose_to_chin = p_chin.y - p_nose.y
+            if nose_to_chin / (face_height + 1e-6) < 0.3:
+                distraction_score += 2 # double speed if looking down
+                
+        else:
+            # Face lost - looking away
+            distraction_score += 1
+            
+        if distraction_score > 45: # 1.5 seconds of distraction
+            is_distracted = True
+            try: sound_distracted.play()
+            except: pass
+        else:
+            is_distracted = False
+            try: sound_distracted.stop()
+            except: pass
+
         faces = face_cascade.detectMultiScale(gray, minNeighbors=5, scaleFactor=1.1, minSize=(25, 25))
         left_eye = leye_cascade.detectMultiScale(gray)
         right_eye = reye_cascade.detectMultiScale(gray)
@@ -134,10 +203,17 @@ def generate_frames():
         if score < 0:
             score = 0
             
-        # Audio logic
+        # Audio logic & Analytics
         if score > 30:
+            if score == 31: 
+                total_alarms_prevented += 1
             try:
-                sound.play()
+                if score < 60:
+                    sound.set_volume(0.5)
+                else:
+                    sound.set_volume(1.0)
+                if score % 15 == 0: # Play every 15 frames to prevent stuttering
+                    sound.play()
             except:
                 pass
         else:
@@ -179,12 +255,29 @@ def video_feed():
 @app.route('/status')
 def get_status():
     global score, state, r_prob, l_prob, debug_mode
+    global is_yawning, is_distracted
     return jsonify({
         'score': score,
         'state': state,
         'r_prob': r_prob,
         'l_prob': l_prob,
-        'debug_mode': debug_mode
+        'debug_mode': debug_mode,
+        'is_yawning': is_yawning,
+        'is_distracted': is_distracted
+    })
+
+@app.route('/stop_system', methods=['POST'])
+def stop_system():
+    global session_start_time, total_alarms_prevented, yawn_count, score
+    
+    # Calculate totals
+    uptime = time.time() - session_start_time
+    
+    # Return trip report
+    return jsonify({
+        'uptime_seconds': int(uptime),
+        'alarms_prevented': total_alarms_prevented,
+        'yawn_count': yawn_count
     })
 
 @app.route('/toggle_debug', methods=['POST'])
