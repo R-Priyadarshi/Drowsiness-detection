@@ -55,9 +55,21 @@ yawn_score = 0
 is_yawning = False
 is_distracted = False
 
+# God-Tier Variables
+is_calibrating = True
+calibration_frames = 0
+MAX_CALIBRATION_FRAMES = 100
+baseline_mar = 0.0
+baseline_brow_dist = 0.0
+is_stressed = False
+stress_score = 0
+rppg_buffer = []
+bpm = 0
+
 def generate_frames():
     global score, state, r_prob, l_prob, debug_mode
     global total_alarms_prevented, yawn_count, distraction_score, yawn_score, is_yawning, is_distracted
+    global is_calibrating, calibration_frames, baseline_mar, baseline_brow_dist, is_stressed, stress_score, rppg_buffer, bpm
     cap = cv2.VideoCapture(0)
     
     while True:
@@ -77,14 +89,30 @@ def generate_frames():
             if distraction_score < 0: distraction_score = 0
             
             face_landmarks = results.multi_face_landmarks[0]
-            # Yawn Calculation (Mouth Aspect Ratio)
+            
+            # --- Calibration Logic ---
             p_upper = face_landmarks.landmark[13]
             p_lower = face_landmarks.landmark[14]
             p_left = face_landmarks.landmark[78]
             p_right = face_landmarks.landmark[308]
-            
             mar = abs(p_upper.y - p_lower.y) / (abs(p_left.x - p_right.x) + 1e-6)
-            if mar > 0.6:
+
+            p_brow_l = face_landmarks.landmark[107]
+            p_brow_r = face_landmarks.landmark[336]
+            brow_dist = abs(p_brow_l.x - p_brow_r.x)
+
+            if is_calibrating:
+                baseline_mar += mar
+                baseline_brow_dist += brow_dist
+                calibration_frames += 1
+                if calibration_frames >= MAX_CALIBRATION_FRAMES:
+                    baseline_mar /= MAX_CALIBRATION_FRAMES
+                    baseline_brow_dist /= MAX_CALIBRATION_FRAMES
+                    is_calibrating = False
+                continue # Skip threat detection while calibrating
+                
+            # --- Yawn Calculation (Adaptive) ---
+            if mar > baseline_mar + 0.35:
                 yawn_score += 1
                 if yawn_score > 15: # half a second
                     is_yawning = True
@@ -98,7 +126,44 @@ def generate_frames():
                 try: sound_yawn.stop()
                 except: pass
                 
-            # Head Pose (simplified pitch down)
+            # --- Emotion / Stress Detection ---
+            if brow_dist < baseline_brow_dist * 0.8: # Furrowed brows
+                stress_score += 1
+                if stress_score > 30: # 1 second of intense furrow
+                    is_stressed = True
+            else:
+                stress_score -= 1
+                if stress_score < 0: stress_score = 0
+                is_stressed = False
+
+            # --- rPPG Heart Rate ---
+            # Extract forehead ROI points
+            fh_pts = [10, 109, 67, 103, 54]
+            green_sum = 0
+            for pt in fh_pts:
+                lm = face_landmarks.landmark[pt]
+                x_px = int(lm.x * width)
+                y_px = int(lm.y * height)
+                if 0 <= x_px < width and 0 <= y_px < height:
+                    green_sum += frame[y_px, x_px, 1] # Green channel
+            
+            green_avg = green_sum / len(fh_pts)
+            rppg_buffer.append(green_avg)
+            if len(rppg_buffer) > 150: # 5 second window at 30 FPS
+                rppg_buffer.pop(0)
+                # Compute FFT
+                signal = np.array(rppg_buffer)
+                signal = signal - np.mean(signal)
+                fft_vals = np.abs(np.fft.rfft(signal))
+                freqs = np.fft.rfftfreq(150, d=1.0/30.0)
+                
+                # Bandpass 0.75 Hz to 3.0 Hz (45 to 180 BPM)
+                valid_idx = np.where((freqs >= 0.75) & (freqs <= 3.0))[0]
+                if len(valid_idx) > 0:
+                    peak_freq = freqs[valid_idx[np.argmax(fft_vals[valid_idx])]]
+                    bpm = int(peak_freq * 60)
+            
+            # --- Head Pose (simplified pitch down) ---
             p_nose = face_landmarks.landmark[1]
             p_chin = face_landmarks.landmark[152]
             p_forehead = face_landmarks.landmark[10]
@@ -256,6 +321,7 @@ def video_feed():
 def get_status():
     global score, state, r_prob, l_prob, debug_mode
     global is_yawning, is_distracted
+    global is_calibrating, is_stressed, bpm
     return jsonify({
         'score': score,
         'state': state,
@@ -263,12 +329,16 @@ def get_status():
         'l_prob': l_prob,
         'debug_mode': debug_mode,
         'is_yawning': is_yawning,
-        'is_distracted': is_distracted
+        'is_distracted': is_distracted,
+        'is_calibrating': is_calibrating,
+        'is_stressed': is_stressed,
+        'bpm': bpm
     })
 
 @app.route('/stop_system', methods=['POST'])
 def stop_system():
     global session_start_time, total_alarms_prevented, yawn_count, score
+    global bpm, is_stressed
     
     # Calculate totals
     uptime = time.time() - session_start_time
@@ -277,7 +347,8 @@ def stop_system():
     return jsonify({
         'uptime_seconds': int(uptime),
         'alarms_prevented': total_alarms_prevented,
-        'yawn_count': yawn_count
+        'yawn_count': yawn_count,
+        'bpm': bpm
     })
 
 @app.route('/toggle_debug', methods=['POST'])
