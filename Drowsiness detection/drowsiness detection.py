@@ -138,347 +138,364 @@ def generate_frames():
     global is_calibrating, calibration_frames, baseline_mar, baseline_brow_dist, is_stressed, stress_score, rppg_buffer, bpm
     global iot_triggered, last_iot_trigger_time, iot_webhook_url
     
-    with camera_lock:
-        cap = get_working_camera()
+    cap = get_working_camera()
+    consecutive_failures = 0
+    ear = 0.3  # Default safe EAR value (eyes open)
     
     while True:
         if not system_running:
             break
         
-        with camera_lock:
+        try:
             ret, frame = cap.read()
-        
-        # Check if frame is black (hardware/driver glitch)
-        if ret and frame is not None:
-            if np.mean(frame) < 1.0:
-                ret = False # Force reconnect
+            
+            # Check if frame is black (hardware/driver glitch)
+            if ret and frame is not None:
+                if np.mean(frame) < 1.0:
+                    ret = False  # Force reconnect
 
-        if not ret:
-            # Fallback: No camera frame
-            import numpy as np
-            frame = np.zeros((480, 640, 3), dtype=np.uint8)
-            cv2.putText(frame, "NO CAMERA DETECTED", (150, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            ret, buffer = cv2.imencode('.jpg', frame)
-            yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-            time.sleep(1.0) # Sleep OUTSIDE the lock
-            # Try reconnecting
-            with camera_lock:
-                cap.release()
-                cap = get_working_camera()
-            continue
-            
-        height, width = frame.shape[:2]
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        
-        # Mediapipe Face Mesh for Head Pose & Yawning
-        try:
-            results = face_mesh.process(rgb_frame)
-        except Exception:
-            class DummyResults:
-                multi_face_landmarks = None
-            results = DummyResults()
-            
-        if results.multi_face_landmarks:
-            is_distracted = False
-            distraction_score -= 1
-            if distraction_score < 0: distraction_score = 0
-            
-            face_landmarks = results.multi_face_landmarks[0]
-            
-            # --- Calibration Logic ---
-            p_upper = face_landmarks.landmark[13]
-            p_lower = face_landmarks.landmark[14]
-            p_left = face_landmarks.landmark[78]
-            p_right = face_landmarks.landmark[308]
-            mar = abs(p_upper.y - p_lower.y) / (abs(p_left.x - p_right.x) + 1e-6)
-
-            # --- Eye Aspect Ratio (EAR) Fallback ---
-            p_l_top = face_landmarks.landmark[159]
-            p_l_bot = face_landmarks.landmark[145]
-            p_l_left = face_landmarks.landmark[33]
-            p_l_right = face_landmarks.landmark[133]
-            l_ear = abs(p_l_top.y - p_l_bot.y) / (abs(p_l_left.x - p_l_right.x) + 1e-6)
-            
-            p_r_top = face_landmarks.landmark[386]
-            p_r_bot = face_landmarks.landmark[374]
-            p_r_left = face_landmarks.landmark[362]
-            p_r_right = face_landmarks.landmark[263]
-            r_ear = abs(p_r_top.y - p_r_bot.y) / (abs(p_r_left.x - p_r_right.x) + 1e-6)
-            ear = (l_ear + r_ear) / 2.0
-
-            p_brow_l = face_landmarks.landmark[107]
-            p_brow_r = face_landmarks.landmark[336]
-            brow_dist = abs(p_brow_l.x - p_brow_r.x)
-
-            if is_calibrating:
-                baseline_mar += mar
-                baseline_brow_dist += brow_dist
-                calibration_frames += 1
-                if calibration_frames >= MAX_CALIBRATION_FRAMES:
-                    baseline_mar /= MAX_CALIBRATION_FRAMES
-                    baseline_brow_dist /= MAX_CALIBRATION_FRAMES
-                    is_calibrating = False
-                continue # Skip threat detection while calibrating
-                
-            # --- Yawn Calculation (Adaptive) ---
-            if mar > baseline_mar + 0.35:
-                yawn_score += 1
-                if yawn_score > 30: yawn_score = 30 # Cap max score
-                if yawn_score > 15: # half a second
-                    is_yawning = True
-                    if yawn_score == 16: 
-                        yawn_count += 1
-                        try: sound_yawn.play()
-                        except: pass
-            else:
-                yawn_score -= 1
-                if yawn_score < 0: yawn_score = 0
-                is_yawning = False
-                try: sound_yawn.stop()
-                except: pass
-                
-            # --- Emotion / Stress Detection ---
-            if brow_dist < baseline_brow_dist * 0.8: # Furrowed brows
-                stress_score += 1
-                if stress_score > 45: stress_score = 45 # Cap max score
-                if stress_score > 30: # 1 second of intense furrow
-                    is_stressed = True
-            else:
-                stress_score -= 1
-                if stress_score < 0: stress_score = 0
-                is_stressed = False
-
-            # --- rPPG Heart Rate ---
-            # Extract forehead ROI points
-            fh_pts = [10, 109, 67, 103, 54]
-            green_sum = 0
-            for pt in fh_pts:
-                lm = face_landmarks.landmark[pt]
-                x_px = int(lm.x * width)
-                y_px = int(lm.y * height)
-                if 0 <= x_px < width and 0 <= y_px < height:
-                    green_sum += frame[y_px, x_px, 1] # Green channel
-            
-            green_avg = green_sum / len(fh_pts)
-            rppg_buffer.append(green_avg)
-            if len(rppg_buffer) > 150: # 5 second window at 30 FPS
-                rppg_buffer.pop(0)
-                # Compute FFT
-                signal = np.array(rppg_buffer)
-                signal = signal - np.mean(signal)
-                fft_vals = np.abs(np.fft.rfft(signal))
-                freqs = np.fft.rfftfreq(150, d=1.0/30.0)
-                
-                # Bandpass 0.75 Hz to 3.0 Hz (45 to 180 BPM)
-                valid_idx = np.where((freqs >= 0.75) & (freqs <= 3.0))[0]
-                if len(valid_idx) > 0:
-                    peak_freq = freqs[valid_idx[np.argmax(fft_vals[valid_idx])]]
-                    bpm = int(peak_freq * 60)
-            
-            # --- Head Pose (simplified pitch down) ---
-            p_nose = face_landmarks.landmark[1]
-            p_chin = face_landmarks.landmark[152]
-            p_forehead = face_landmarks.landmark[10]
-            face_height = p_chin.y - p_forehead.y
-            nose_to_chin = p_chin.y - p_nose.y
-            if nose_to_chin / (face_height + 1e-6) < 0.3:
-                distraction_score += 2 # double speed if looking down
-                
-        else:
-            # Face lost - looking away
-            distraction_score += 1
-            
-        if distraction_score > 60: distraction_score = 60 # Cap max score
-        if distraction_score > 45: # 1.5 seconds of distraction
-            if not is_distracted:
-                try: sound_distracted.play()
-                except: pass
-            is_distracted = True
-        else:
-            is_distracted = False
-            try: sound_distracted.stop()
-            except: pass
-
-        if not face_cascade.empty():
-            faces = face_cascade.detectMultiScale(gray, minNeighbors=5, scaleFactor=1.1, minSize=(25, 25))
-        else:
-            faces = []
-            
-        if not leye_cascade.empty():
-            left_eye = leye_cascade.detectMultiScale(gray)
-        else:
-            left_eye = []
-            
-        if not reye_cascade.empty():
-            right_eye = reye_cascade.detectMultiScale(gray)
-        else:
-            right_eye = []
-
-        # Draw rects
-        for (x, y, w, h) in faces:
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (100, 100, 100), 1)
-
-        rpred = None
-        lpred = None
-        r_eye_disp = None
-        l_eye_disp = None
-
-        for (x, y, w, h) in right_eye:
-            if model is None: break
-            r_eye = frame[y:y + h, x:x + w]
-            if r_eye.size == 0: continue
-            r_eye_gray = cv2.cvtColor(r_eye, cv2.COLOR_BGR2GRAY)
-            r_eye_24 = cv2.resize(r_eye_gray, (24, 24))
-            r_eye_disp = r_eye_24.copy()
-            r_eye = r_eye_24 / 255
-            r_eye = r_eye.reshape(24, 24, -1)
-            r_eye = np.expand_dims(r_eye, axis=0)
-            
-            with model_lock:
-                try:
-                    rpred = model(r_eye, training=False).numpy()
-                except Exception:
-                    rpred = np.array([[1.0]]) # Fallback to open if model crashes
-                    
-            if debug_mode:
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                cx, cy = x + w//2, y + h//2
-                cv2.line(frame, (cx-10, cy), (cx+10, cy), (0, 255, 0), 1)
-                cv2.line(frame, (cx, cy-10), (cx, cy+10), (0, 255, 0), 1)
-                cv2.putText(frame, f"R: {float(rpred[0][0]):.2f}", (x, y-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-            break
-
-        for (x, y, w, h) in left_eye:
-            if model is None: break
-            l_eye = frame[y:y + h, x:x + w]
-            if l_eye.size == 0: continue
-            l_eye_gray = cv2.cvtColor(l_eye, cv2.COLOR_BGR2GRAY)
-            l_eye_24 = cv2.resize(l_eye_gray, (24, 24))
-            l_eye_disp = l_eye_24.copy()
-            l_eye = l_eye_24 / 255
-            l_eye = l_eye.reshape(24, 24, -1)
-            l_eye = np.expand_dims(l_eye, axis=0)
-            
-            with model_lock:
-                try:
-                    lpred = model(l_eye, training=False).numpy()
-                except Exception:
-                    lpred = np.array([[1.0]]) # Fallback
-                    
-            if debug_mode:
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                cx, cy = x + w//2, y + h//2
-                cv2.line(frame, (cx-10, cy), (cx+10, cy), (0, 255, 0), 1)
-                cv2.line(frame, (cx, cy-10), (cx, cy+10), (0, 255, 0), 1)
-                cv2.putText(frame, f"L: {float(lpred[0][0]):.2f}", (x, y-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-            break
-            
-        r_detected = rpred is not None
-        l_detected = lpred is not None
-
-        if r_detected or l_detected:
-            # Model outputs 1 for Open, 0 for Closed. We map to closed probability.
-            r_closed_prob = 1.0 - float(rpred[0][0]) if r_detected else 0.0
-            l_closed_prob = 1.0 - float(lpred[0][0]) if l_detected else 0.0
-            
-            r_prob = r_closed_prob # Update telemetry vars
-            l_prob = l_closed_prob
-            
-            r_is_closed = r_detected and r_closed_prob > 0.5
-            l_is_closed = l_detected and l_closed_prob > 0.5
-            
-            if r_detected and l_detected:
-                if r_is_closed and l_is_closed:
-                    state = "Closed"
-                else:
-                    state = "Open"
-            elif r_detected:
-                if r_is_closed:
-                    state = "Closed"
-                else:
-                    state = "Open"
-            elif l_detected:
-                if l_is_closed:
-                    state = "Closed"
-                else:
-                    state = "Open"
-        else:
-            if results.multi_face_landmarks:
-                # Haar cascade failed (e.g. glasses). Fallback to MediaPipe EAR
-                if 'ear' in locals() and ear < 0.22:
-                    state = "Closed"
-                else:
-                    state = "Open"
-            elif len(faces) > 0:
-                state = "Open"
-            else:
+            if not ret:
+                consecutive_failures += 1
+                # Show "No Camera" message but KEEP the stream alive
+                frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(frame, "RECONNECTING CAMERA...", (120, 230), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 100, 255), 2)
+                cv2.putText(frame, f"Attempt {consecutive_failures}", (220, 270), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (100, 100, 100), 1)
                 state = "No Face"
-
-        if state == "Open" or state == "No Face":
-            # Don't increase drowsiness score if no face is detected.
-            # (Distraction score handles missing face separately).
-            score -= 1
-        else:
-            score += 1
-            if score > 60: score = 60 # Cap max score
-
-        if score < 0:
-            score = 0
+                ret_enc, buffer = cv2.imencode('.jpg', frame)
+                if ret_enc:
+                    yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+                time.sleep(0.5)
+                # Try reconnecting camera
+                try:
+                    cap.release()
+                except:
+                    pass
+                cap = get_working_camera()
+                continue
             
-        # Reset IoT trigger if user wakes up
-        if score < 15:
-            iot_triggered = False
-            
-        # Audio logic & Analytics
-        if score > 30:
-            if score == 31: 
-                total_alarms_prevented += 1
-            trigger_smart_cabin()
-            try:
-                if score < 60:
-                    sound.set_volume(0.5)
-                else:
-                    sound.set_volume(1.0)
-                if score % 15 == 0: # Play every 15 frames to prevent stuttering
-                    sound.play()
-            except:
-                pass
-        else:
-            try:
-                sound.stop()
-            except:
-                pass
+            # Camera is working - reset failure counter
+            consecutive_failures = 0
                 
-        # Debug Mode Overlays
-        if debug_mode:
-            disp_size = 120
-            if r_eye_disp is not None:
-                r_eye_color = cv2.cvtColor(r_eye_disp, cv2.COLOR_GRAY2BGR)
-                r_eye_big = cv2.resize(r_eye_color, (disp_size, disp_size), interpolation=cv2.INTER_NEAREST)
-                frame[0:disp_size, width-disp_size:width] = r_eye_big
-                cv2.rectangle(frame, (width-disp_size, 0), (width, disp_size), (0,255,0), 2)
-                cv2.putText(frame, "AI Input R", (width-disp_size+5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
-            if l_eye_disp is not None:
-                l_eye_color = cv2.cvtColor(l_eye_disp, cv2.COLOR_GRAY2BGR)
-                l_eye_big = cv2.resize(l_eye_color, (disp_size, disp_size), interpolation=cv2.INTER_NEAREST)
-                frame[0:disp_size, 0:disp_size] = l_eye_big
-                cv2.rectangle(frame, (0, 0), (disp_size, disp_size), (0,255,0), 2)
-                cv2.putText(frame, "AI Input L", (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+            height, width = frame.shape[:2]
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            
+            # Mediapipe Face Mesh for Head Pose & Yawning
+            try:
+                results = face_mesh.process(rgb_frame)
+            except Exception:
+                class DummyResults:
+                    multi_face_landmarks = None
+                results = DummyResults()
+                
+            if results.multi_face_landmarks:
+                is_distracted = False
+                distraction_score -= 1
+                if distraction_score < 0: distraction_score = 0
+                
+                face_landmarks = results.multi_face_landmarks[0]
+                
+                # --- Calibration Logic ---
+                p_upper = face_landmarks.landmark[13]
+                p_lower = face_landmarks.landmark[14]
+                p_left = face_landmarks.landmark[78]
+                p_right = face_landmarks.landmark[308]
+                mar = abs(p_upper.y - p_lower.y) / (abs(p_left.x - p_right.x) + 1e-6)
 
-        # We don't use cv2.imshow anymore. Encode for web MJPEG stream.
-        ret, buffer = cv2.imencode('.jpg', frame)
-        frame_bytes = buffer.tobytes()
-        try:
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                # --- Eye Aspect Ratio (EAR) - always computed ---
+                p_l_top = face_landmarks.landmark[159]
+                p_l_bot = face_landmarks.landmark[145]
+                p_l_left = face_landmarks.landmark[33]
+                p_l_right = face_landmarks.landmark[133]
+                l_ear = abs(p_l_top.y - p_l_bot.y) / (abs(p_l_left.x - p_l_right.x) + 1e-6)
+                
+                p_r_top = face_landmarks.landmark[386]
+                p_r_bot = face_landmarks.landmark[374]
+                p_r_left = face_landmarks.landmark[362]
+                p_r_right = face_landmarks.landmark[263]
+                r_ear = abs(p_r_top.y - p_r_bot.y) / (abs(p_r_left.x - p_r_right.x) + 1e-6)
+                ear = (l_ear + r_ear) / 2.0
+
+                p_brow_l = face_landmarks.landmark[107]
+                p_brow_r = face_landmarks.landmark[336]
+                brow_dist = abs(p_brow_l.x - p_brow_r.x)
+
+                if is_calibrating:
+                    baseline_mar += mar
+                    baseline_brow_dist += brow_dist
+                    calibration_frames += 1
+                    if calibration_frames >= MAX_CALIBRATION_FRAMES:
+                        baseline_mar /= MAX_CALIBRATION_FRAMES
+                        baseline_brow_dist /= MAX_CALIBRATION_FRAMES
+                        is_calibrating = False
+                    # Still emit the frame during calibration (don't skip!)
+                    ret_enc, buffer = cv2.imencode('.jpg', frame)
+                    if ret_enc:
+                        yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+                    continue
+                    
+                # --- Yawn Calculation (Adaptive) ---
+                if mar > baseline_mar + 0.35:
+                    yawn_score += 1
+                    if yawn_score > 30: yawn_score = 30 # Cap max score
+                    if yawn_score > 15: # half a second
+                        is_yawning = True
+                        if yawn_score == 16: 
+                            yawn_count += 1
+                            try: sound_yawn.play()
+                            except: pass
+                else:
+                    yawn_score -= 1
+                    if yawn_score < 0: yawn_score = 0
+                    is_yawning = False
+                    try: sound_yawn.stop()
+                    except: pass
+                    
+                # --- Emotion / Stress Detection ---
+                if brow_dist < baseline_brow_dist * 0.8: # Furrowed brows
+                    stress_score += 1
+                    if stress_score > 45: stress_score = 45 # Cap max score
+                    if stress_score > 30: # 1 second of intense furrow
+                        is_stressed = True
+                else:
+                    stress_score -= 1
+                    if stress_score < 0: stress_score = 0
+                    is_stressed = False
+
+                # --- rPPG Heart Rate ---
+                fh_pts = [10, 109, 67, 103, 54]
+                green_sum = 0
+                for pt in fh_pts:
+                    lm = face_landmarks.landmark[pt]
+                    x_px = int(lm.x * width)
+                    y_px = int(lm.y * height)
+                    if 0 <= x_px < width and 0 <= y_px < height:
+                        green_sum += frame[y_px, x_px, 1]
+                
+                green_avg = green_sum / len(fh_pts)
+                rppg_buffer.append(green_avg)
+                if len(rppg_buffer) > 150:
+                    rppg_buffer.pop(0)
+                    signal = np.array(rppg_buffer)
+                    signal = signal - np.mean(signal)
+                    fft_vals = np.abs(np.fft.rfft(signal))
+                    freqs = np.fft.rfftfreq(150, d=1.0/30.0)
+                    
+                    valid_idx = np.where((freqs >= 0.75) & (freqs <= 3.0))[0]
+                    if len(valid_idx) > 0:
+                        peak_freq = freqs[valid_idx[np.argmax(fft_vals[valid_idx])]]
+                        bpm = int(peak_freq * 60)
+                
+                # --- Head Pose (simplified pitch down) ---
+                p_nose = face_landmarks.landmark[1]
+                p_chin = face_landmarks.landmark[152]
+                p_forehead = face_landmarks.landmark[10]
+                face_height = p_chin.y - p_forehead.y
+                nose_to_chin = p_chin.y - p_nose.y
+                if nose_to_chin / (face_height + 1e-6) < 0.3:
+                    distraction_score += 2
+                    
+            else:
+                # Face lost - looking away
+                distraction_score += 1
+                
+            if distraction_score > 60: distraction_score = 60
+            if distraction_score > 45:
+                if not is_distracted:
+                    try: sound_distracted.play()
+                    except: pass
+                is_distracted = True
+            else:
+                is_distracted = False
+                try: sound_distracted.stop()
+                except: pass
+
+            if not face_cascade.empty():
+                faces = face_cascade.detectMultiScale(gray, minNeighbors=5, scaleFactor=1.1, minSize=(25, 25))
+            else:
+                faces = []
+                
+            if not leye_cascade.empty():
+                left_eye = leye_cascade.detectMultiScale(gray)
+            else:
+                left_eye = []
+                
+            if not reye_cascade.empty():
+                right_eye = reye_cascade.detectMultiScale(gray)
+            else:
+                right_eye = []
+
+            # Draw rects
+            for (x, y, w, h) in faces:
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (100, 100, 100), 1)
+
+            rpred = None
+            lpred = None
+            r_eye_disp = None
+            l_eye_disp = None
+
+            for (x, y, w, h) in right_eye:
+                if model is None: break
+                r_eye = frame[y:y + h, x:x + w]
+                if r_eye.size == 0: continue
+                r_eye_gray = cv2.cvtColor(r_eye, cv2.COLOR_BGR2GRAY)
+                r_eye_24 = cv2.resize(r_eye_gray, (24, 24))
+                r_eye_disp = r_eye_24.copy()
+                r_eye = r_eye_24 / 255
+                r_eye = r_eye.reshape(24, 24, -1)
+                r_eye = np.expand_dims(r_eye, axis=0)
+                
+                with model_lock:
+                    try:
+                        rpred = model(r_eye, training=False).numpy()
+                    except Exception:
+                        rpred = np.array([[1.0]])
+                        
+                if debug_mode:
+                    cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                    cx, cy = x + w//2, y + h//2
+                    cv2.line(frame, (cx-10, cy), (cx+10, cy), (0, 255, 0), 1)
+                    cv2.line(frame, (cx, cy-10), (cx, cy+10), (0, 255, 0), 1)
+                    cv2.putText(frame, f"R: {float(rpred[0][0]):.2f}", (x, y-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                break
+
+            for (x, y, w, h) in left_eye:
+                if model is None: break
+                l_eye = frame[y:y + h, x:x + w]
+                if l_eye.size == 0: continue
+                l_eye_gray = cv2.cvtColor(l_eye, cv2.COLOR_BGR2GRAY)
+                l_eye_24 = cv2.resize(l_eye_gray, (24, 24))
+                l_eye_disp = l_eye_24.copy()
+                l_eye = l_eye_24 / 255
+                l_eye = l_eye.reshape(24, 24, -1)
+                l_eye = np.expand_dims(l_eye, axis=0)
+                
+                with model_lock:
+                    try:
+                        lpred = model(l_eye, training=False).numpy()
+                    except Exception:
+                        lpred = np.array([[1.0]])
+                        
+                if debug_mode:
+                    cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                    cx, cy = x + w//2, y + h//2
+                    cv2.line(frame, (cx-10, cy), (cx+10, cy), (0, 255, 0), 1)
+                    cv2.line(frame, (cx, cy-10), (cx, cy+10), (0, 255, 0), 1)
+                    cv2.putText(frame, f"L: {float(lpred[0][0]):.2f}", (x, y-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                break
+                
+            r_detected = rpred is not None
+            l_detected = lpred is not None
+
+            if r_detected or l_detected:
+                # Model outputs 1 for Open, 0 for Closed. We map to closed probability.
+                r_closed_prob = 1.0 - float(rpred[0][0]) if r_detected else 0.0
+                l_closed_prob = 1.0 - float(lpred[0][0]) if l_detected else 0.0
+                
+                r_prob = r_closed_prob
+                l_prob = l_closed_prob
+                
+                r_is_closed = r_detected and r_closed_prob > 0.5
+                l_is_closed = l_detected and l_closed_prob > 0.5
+                
+                if r_detected and l_detected:
+                    if r_is_closed and l_is_closed:
+                        state = "Closed"
+                    else:
+                        state = "Open"
+                elif r_detected:
+                    state = "Closed" if r_is_closed else "Open"
+                elif l_detected:
+                    state = "Closed" if l_is_closed else "Open"
+            else:
+                if results.multi_face_landmarks:
+                    # Haar cascade failed (e.g. glasses). Fallback to MediaPipe EAR
+                    if ear < 0.22:
+                        state = "Closed"
+                    else:
+                        state = "Open"
+                elif len(faces) > 0:
+                    state = "Open"
+                else:
+                    state = "No Face"
+
+            if state == "Open" or state == "No Face":
+                score -= 1
+            else:
+                score += 1
+                if score > 60: score = 60
+
+            if score < 0:
+                score = 0
+                
+            # Reset IoT trigger if user wakes up
+            if score < 15:
+                iot_triggered = False
+                
+            # Audio logic & Analytics
+            if score > 30:
+                if score == 31: 
+                    total_alarms_prevented += 1
+                trigger_smart_cabin()
+                try:
+                    if score < 60:
+                        sound.set_volume(0.5)
+                    else:
+                        sound.set_volume(1.0)
+                    if score % 15 == 0:
+                        sound.play()
+                except:
+                    pass
+            else:
+                try:
+                    sound.stop()
+                except:
+                    pass
+                    
+            # Debug Mode Overlays
+            if debug_mode:
+                disp_size = 120
+                if r_eye_disp is not None:
+                    r_eye_color = cv2.cvtColor(r_eye_disp, cv2.COLOR_GRAY2BGR)
+                    r_eye_big = cv2.resize(r_eye_color, (disp_size, disp_size), interpolation=cv2.INTER_NEAREST)
+                    frame[0:disp_size, width-disp_size:width] = r_eye_big
+                    cv2.rectangle(frame, (width-disp_size, 0), (width, disp_size), (0,255,0), 2)
+                    cv2.putText(frame, "AI Input R", (width-disp_size+5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+                if l_eye_disp is not None:
+                    l_eye_color = cv2.cvtColor(l_eye_disp, cv2.COLOR_GRAY2BGR)
+                    l_eye_big = cv2.resize(l_eye_color, (disp_size, disp_size), interpolation=cv2.INTER_NEAREST)
+                    frame[0:disp_size, 0:disp_size] = l_eye_big
+                    cv2.rectangle(frame, (0, 0), (disp_size, disp_size), (0,255,0), 2)
+                    cv2.putText(frame, "AI Input L", (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+
+            # Encode frame for MJPEG stream - ALWAYS yield a frame
+            ret_enc, buffer = cv2.imencode('.jpg', frame)
+            if ret_enc:
+                frame_bytes = buffer.tobytes()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                       
         except GeneratorExit:
             break
-        except Exception:
-            break
+        except Exception as e:
+            # NEVER let the generator die - emit a safe frame instead
+            try:
+                err_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(err_frame, "RECOVERING...", (180, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 200, 255), 2)
+                ret_enc, buffer = cv2.imencode('.jpg', err_frame)
+                if ret_enc:
+                    yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+            except GeneratorExit:
+                break
+            except:
+                pass
+            time.sleep(0.1)
+            continue
                
-    with camera_lock:
+    try:
         cap.release()
+    except:
+        pass
 
 @app.route('/')
 def index():
