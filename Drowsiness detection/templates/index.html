@@ -606,6 +606,7 @@
     </style>
 </head>
 <body>
+    <canvas id="particles-canvas"></canvas>
 
     <!-- Minimal God-Tier Landing Page -->
     <div class="landing-wrapper" id="landing-page">
@@ -614,7 +615,7 @@
             Powered by Haar Cascade Classifiers and a Convolutional Neural Network.<br>
             Engineered with dual-eye 90% confidence verification.
         </p>
-        <button class="init-btn" onclick="initializeSystem()">Initialize System</button>
+        <button id="init-btn" class="init-btn" onclick="initializeSystem()">Initialize System</button>
         <div class="landing-footer">Built by - R Priyadarshi</div>
     </div>
 
@@ -662,7 +663,7 @@
         </div>
 
         <!-- Dashboard -->
-        <div class="dashboard">
+        <div class="dashboard" id="dashboard-container">
             <div class="header">
                 <h1>Drowsiness Detector</h1>
                 <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 4px;">AI-Powered Driver Safety System</p>
