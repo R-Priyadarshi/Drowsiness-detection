@@ -97,6 +97,50 @@
             transition: all 0.3s ease;
         }
 
+        /* Toolbar */
+        .toolbar {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            gap: 12px;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(8px);
+            padding: 8px 16px;
+            border-radius: 30px;
+            border: 1px solid rgba(255,255,255,0.1);
+            z-index: 10;
+        }
+
+        .tool-btn {
+            background: rgba(255,255,255,0.1);
+            border: none;
+            color: #fff;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 1.1rem;
+        }
+
+        .tool-btn:hover {
+            background: var(--accent);
+            transform: scale(1.1);
+        }
+
+        #video-feed {
+            cursor: grab;
+            transition: transform 0.1s ease-out; /* smooth quick snapping */
+        }
+        
+        #video-feed:active {
+            cursor: grabbing;
+        }
+
         /* Dashboard Stats */
         .dashboard {
             display: flex;
@@ -223,10 +267,16 @@
     <div class="container">
         <!-- Video Feed -->
         <div class="video-container">
-            <img src="{{ url_for('video_feed') }}" alt="Camera Feed">
+            <img src="{{ url_for('video_feed') }}" alt="Camera Feed" id="video-feed">
             <div class="status-overlay">
                 <div class="status-dot" id="status-dot"></div>
                 <span id="status-text">Active</span>
+            </div>
+            <div class="toolbar">
+                <button class="tool-btn" onclick="zoomIn()" title="Zoom In">➕</button>
+                <button class="tool-btn" onclick="zoomOut()" title="Zoom Out">➖</button>
+                <button class="tool-btn" onclick="resetZoom()" title="Reset Zoom">🔄</button>
+                <button class="tool-btn" onclick="saveSnapshot()" title="Save Snapshot">💾</button>
             </div>
         </div>
 
@@ -311,6 +361,83 @@
                 })
                 .catch(err => console.error('Error fetching status:', err));
         }, 150); // Fast 150ms updates for UI responsiveness
+
+        // --- Zoom and Pan Logic ---
+        const videoFeed = document.getElementById('video-feed');
+        let currentZoom = 1;
+        let isDragging = false;
+        let startX, startY;
+        let translateX = 0, translateY = 0;
+
+        function updateTransform() {
+            videoFeed.style.transform = `scale(${currentZoom}) translate(${translateX}px, ${translateY}px)`;
+        }
+
+        function zoomIn() {
+            currentZoom = Math.min(currentZoom + 0.2, 5); // Max 5x zoom
+            updateTransform();
+        }
+
+        function zoomOut() {
+            currentZoom = Math.max(currentZoom - 0.2, 1); // Min 1x zoom
+            // Reset panning if we zoomed all the way out
+            if (currentZoom === 1) {
+                translateX = 0;
+                translateY = 0;
+            }
+            updateTransform();
+        }
+
+        function resetZoom() {
+            currentZoom = 1;
+            translateX = 0;
+            translateY = 0;
+            updateTransform();
+        }
+
+        // Panning (Drag)
+        videoFeed.addEventListener('mousedown', (e) => {
+            if (currentZoom > 1) {
+                isDragging = true;
+                startX = e.clientX - translateX;
+                startY = e.clientY - translateY;
+            }
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                translateX = e.clientX - startX;
+                translateY = e.clientY - startY;
+                updateTransform();
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        // Save Snapshot Logic
+        function saveSnapshot() {
+            // Because the MJPEG is continuous, we need to draw it to a canvas to save it
+            const canvas = document.createElement('canvas');
+            canvas.width = videoFeed.naturalWidth || 640;
+            canvas.height = videoFeed.naturalHeight || 480;
+            const ctx = canvas.getContext('2d');
+            
+            // Draw current video frame to canvas
+            ctx.drawImage(videoFeed, 0, 0, canvas.width, canvas.height);
+            
+            // Convert to data URL
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+            
+            // Create an anchor and click it to download
+            const link = document.createElement('a');
+            link.href = dataUrl;
+            link.download = `snapshot_${new Date().getTime()}.jpg`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
     </script>
 </body>
 </html>
