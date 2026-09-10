@@ -71,6 +71,8 @@ bpm = 0
 iot_triggered = False
 last_iot_trigger_time = 0
 IOT_COOLDOWN = 10 # seconds
+iot_webhook_url = "http://127.0.0.1:5000/api/smart_car"
+
 
 def trigger_smart_cabin():
     global iot_triggered, last_iot_trigger_time
@@ -83,8 +85,8 @@ def trigger_smart_cabin():
                 "ac": "max",
                 "lights": "strobe"
             }
-            # Using localhost for mock demonstration. Real world = car API URL.
-            requests.post("http://127.0.0.1:5000/api/smart_car", json=payload, timeout=2)
+            # Using the configurable webhook URL
+            requests.post(iot_webhook_url, json=payload, timeout=2)
         except:
             pass
     
@@ -98,7 +100,7 @@ def generate_frames():
     global score, state, r_prob, l_prob, debug_mode
     global total_alarms_prevented, yawn_count, distraction_score, yawn_score, is_yawning, is_distracted
     global is_calibrating, calibration_frames, baseline_mar, baseline_brow_dist, is_stressed, stress_score, rppg_buffer, bpm
-    global iot_triggered, last_iot_trigger_time
+    global iot_triggered, last_iot_trigger_time, iot_webhook_url
     cap = cv2.VideoCapture(0)
     
     while True:
@@ -376,6 +378,16 @@ def status():
 def mock_smart_car_api():
     # Mock IoT API that accepts the webhook from the AI logic
     return jsonify({"status": "success", "message": "Smart Cabin Emergency Protocol Activated"})
+
+from flask import request
+
+@app.route('/api/settings', methods=['POST'])
+def update_settings():
+    global iot_webhook_url
+    data = request.json
+    if 'iot_webhook_url' in data:
+        iot_webhook_url = data['iot_webhook_url']
+    return jsonify({"status": "success", "iot_webhook_url": iot_webhook_url})
 
 @app.route('/stop_system', methods=['POST'])
 def stop_system():
