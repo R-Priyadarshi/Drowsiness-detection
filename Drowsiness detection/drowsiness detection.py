@@ -9,8 +9,6 @@ import threading
 import webbrowser
 import time
 
-app = Flask(__name__)
-
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
     try:
@@ -19,6 +17,8 @@ def resource_path(relative_path):
     except Exception:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
+
+app = Flask(__name__, template_folder=resource_path('templates'))
 
 # Initialize Audio
 mixer.init()
