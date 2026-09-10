@@ -1018,8 +1018,8 @@
                         bpmChart.update();
                     }
 
-                    leftEyeVal.textContent = data.l_prob.toFixed(2);
-                    rightEyeVal.textContent = data.r_prob.toFixed(2);
+                    leftEyeVal.textContent = (data.l_prob != null) ? data.l_prob.toFixed(2) : '0.00';
+                    rightEyeVal.textContent = (data.r_prob != null) ? data.r_prob.toFixed(2) : '0.00';
                     scoreBar.style.width = Math.min(100, (data.score / 30) * 100) + '%';
                     
                     if (data.bpm > 0) {
@@ -1043,11 +1043,11 @@
                             statusDot.style.background = "#9c27b0";
                             statusDot.style.boxShadow = "0 0 15px #9c27b0";
                             document.body.classList.remove('danger-state');
-                        } else if (data.is_distracted) {
+                        } else if (data.distracted) {
                             statusText.textContent = "DISTRACTED";
                             statusDot.style.background = "#ffaa00";
                             document.body.classList.remove('danger-state');
-                        } else if (data.is_yawning) {
+                        } else if (data.yawning) {
                             statusText.textContent = "YAWNING";
                             statusDot.style.background = "#ff8800";
                             document.body.classList.remove('danger-state');
