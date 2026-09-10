@@ -20,7 +20,8 @@ def main():
     data_files = [
         f"alarm.mp3{separator}.",
         f"models{separator}models",
-        f"haar cascade files{separator}haar cascade files"
+        f"haar cascade files{separator}haar cascade files",
+        f"templates{separator}templates"
     ]
     
     # Build the PyInstaller command
