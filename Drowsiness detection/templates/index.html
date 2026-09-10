@@ -40,7 +40,93 @@
             overflow: hidden;
         }
 
+        /* Minimal God-Tier Landing Page */
+        .landing-wrapper {
+            position: fixed;
+            inset: 0;
+            background: #000000;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 1.5s ease, visibility 1.5s;
+            color: #ffffff;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .landing-wrapper.hidden {
+            opacity: 0;
+            visibility: hidden;
+        }
+
+        .landing-title {
+            font-size: 3rem;
+            font-weight: 300;
+            letter-spacing: 12px;
+            text-transform: uppercase;
+            margin-bottom: 24px;
+            background: linear-gradient(90deg, #fff, #666);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .landing-desc {
+            font-size: 0.9rem;
+            font-weight: 400;
+            color: #888;
+            max-width: 600px;
+            text-align: center;
+            line-height: 1.6;
+            margin-bottom: 60px;
+            letter-spacing: 1px;
+        }
+
+        .init-btn {
+            background: transparent;
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 16px 40px;
+            font-size: 0.85rem;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.4s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .init-btn:hover {
+            border-color: rgba(255, 255, 255, 0.8);
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+        }
+
+        .init-btn::before {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%;
+            width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
+            transition: left 0.5s ease;
+        }
+
+        .init-btn:hover::before {
+            left: 100%;
+        }
+
+        .landing-footer {
+            position: absolute;
+            bottom: 40px;
+            font-size: 0.7rem;
+            color: #555;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+        }
+
         .container {
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 1.5s ease 0.5s, visibility 1.5s;
             display: grid;
             grid-template-columns: 2fr 1fr;
             gap: 24px;
@@ -52,6 +138,11 @@
             border: 1px solid rgba(255,255,255,0.1);
             border-radius: 24px;
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+        
+        .container.visible {
+            opacity: 1;
+            visibility: visible;
         }
 
         /* Camera Feed */
@@ -288,10 +379,21 @@
 </head>
 <body>
 
-    <div class="container">
+    <!-- Minimal God-Tier Landing Page -->
+    <div class="landing-wrapper" id="landing-page">
+        <h1 class="landing-title">Aura</h1>
+        <p class="landing-desc">
+            Powered by Haar Cascade Classifiers and a Convolutional Neural Network.<br>
+            Engineered with dual-eye 90% confidence verification.
+        </p>
+        <button class="init-btn" onclick="initializeSystem()">Initialize System</button>
+        <div class="landing-footer">Built by - R Priyadarshi</div>
+    </div>
+
+    <div class="container" id="main-app">
         <!-- Video Feed -->
         <div class="video-container">
-            <img src="{{ url_for('video_feed') }}" alt="Camera Feed" id="video-feed">
+            <img src="" data-src="{{ url_for('video_feed') }}" alt="Camera Feed" id="video-feed">
             <div class="status-overlay">
                 <div class="status-dot" id="status-dot"></div>
                 <span id="status-text">Active</span>
@@ -392,7 +494,19 @@
                 .catch(err => console.error('Error fetching status:', err));
         }, 150); // Fast 150ms updates for UI responsiveness
 
-        // --- Zoom and Pan Logic ---
+        // Landing Page Initialization
+        function initializeSystem() {
+            // Hide landing page
+            document.getElementById('landing-page').classList.add('hidden');
+            
+            // Show dashboard
+            document.getElementById('main-app').classList.add('visible');
+            
+            // Trigger video feed (camera light turns on now)
+            const videoElement = document.getElementById('video-feed');
+            videoElement.src = videoElement.getAttribute('data-src');
+        }
+
         const videoFeed = document.getElementById('video-feed');
         let currentZoom = 1;
         let isDragging = false;
