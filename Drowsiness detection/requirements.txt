@@ -2,5 +2,6 @@ opencv-contrib-python
 keras==2.15.0
 tensorflow==2.15.0
 numpy
-pygame
+pygame==2.6.0
+mediapipe==0.10.14
 flask
