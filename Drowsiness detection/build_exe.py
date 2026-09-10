@@ -19,18 +19,20 @@ def main():
     
     data_files = [
         f"alarm.mp3{separator}.",
+        f"distracted.wav{separator}.",
+        f"yawn.wav{separator}.",
         f"models{separator}models",
         f"haar cascade files{separator}haar cascade files",
         f"templates{separator}templates"
     ]
     
-    # Build the PyInstaller command
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--onefile",
         "--windowed", # Don't open a console window
         "--name", "DrowsinessDetector",
-        "--collect-all", "cv2"
+        "--collect-all", "cv2",
+        "--collect-all", "mediapipe"
     ]
     
     for data in data_files:
