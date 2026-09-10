@@ -1049,7 +1049,13 @@
                         }
                     }
                 })
-                .catch(err => console.error('Error fetching status:', err));
+                .catch(err => {
+                    console.error('Error fetching status:', err);
+                    statusText.textContent = "SYSTEM DISCONNECTED";
+                    statusDot.style.background = "#555";
+                    statusDot.style.boxShadow = "none";
+                    document.body.classList.remove('danger-state');
+                });
         }, 150); // Fast 150ms updates for UI responsiveness
 
         

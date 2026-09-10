@@ -55,6 +55,8 @@ reye_cascade = cv2.CascadeClassifier(resource_path(os.path.join('haar cascade fi
 # Initialize Model
 try:
     model = load_model(resource_path(os.path.join('models','cnnCat2.h5')))
+    # Warmup prediction to prevent first-frame lag spike
+    model.predict(np.zeros((1, 24, 24, 1)), verbose=0)
 except Exception as e:
     print(f"Warning: AI Model could not be loaded. Eye detection disabled. {e}")
     model = None
