@@ -20,6 +20,7 @@ import mediapipe as mp
 import mediapipe.python.solutions.face_mesh as face_mesh_solution
 import requests
 from flask import request
+
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
     try:
@@ -465,9 +466,9 @@ def generate_frames():
                 except:
                     pass
             else:
+                alarm_playing = False
                 try:
                     sound.stop()
-                    alarm_playing = False
                 except:
                     pass
                     
@@ -605,22 +606,27 @@ def start_system():
 @app.route('/stop_system', methods=['POST'])
 def stop_system():
     global session_start_time, total_alarms_prevented, yawn_count, score
-    global bpm, is_stressed, system_running
+    global bpm, is_stressed, system_running, alarm_playing
     
     system_running = False
     
+    # Stop any playing alarm
+    alarm_playing = False
+    try:
+        sound.stop()
+    except:
+        pass
+    try:
+        sound_distracted.stop()
+    except:
+        pass
+    try:
+        sound_yawn.stop()
+    except:
+        pass
+    
     # Calculate totals
     uptime = time.time() - session_start_time
-    
-    # Return trip report and trigger hard shutdown
-    def hard_shutdown():
-        try:
-            mixer.quit()
-        except:
-            pass
-        time.sleep(1) # Give the frontend time to receive the response
-        os._exit(0)
-    threading.Thread(target=hard_shutdown, daemon=True).start()
     
     return jsonify({
         'uptime_seconds': int(uptime),
