@@ -426,14 +426,49 @@ def generate_frames():
             else:
                 if results.multi_face_landmarks:
                     # Haar cascade failed (e.g. glasses). Fallback to MediaPipe EAR
+                    # Convert EAR to a pseudo closed-probability for the dashboard
+                    ear_prob = max(0.0, min(1.0, 1.0 - (ear / 0.44)))
+                    r_prob = ear_prob
+                    l_prob = ear_prob
+
                     if ear < 0.22:
                         state = "Closed"
                     else:
                         state = "Open"
+
+                    # Debug Mode: Draw MediaPipe eye landmarks when Haar fails
+                    if debug_mode:
+                        mp_landmarks = results.multi_face_landmarks[0]
+                        LEFT_EYE_IDX = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246]
+                        RIGHT_EYE_IDX = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398]
+
+                        for eye_indices, label in [(LEFT_EYE_IDX, "L"), (RIGHT_EYE_IDX, "R")]:
+                            pts = []
+                            for idx in eye_indices:
+                                lm = mp_landmarks.landmark[idx]
+                                px = int(lm.x * width)
+                                py = int(lm.y * height)
+                                pts.append((px, py))
+                                cv2.circle(frame, (px, py), 1, (0, 255, 0), -1)
+                            if pts:
+                                xs = [p[0] for p in pts]
+                                ys = [p[1] for p in pts]
+                                x1, y1 = min(xs) - 5, min(ys) - 5
+                                x2, y2 = max(xs) + 5, max(ys) + 5
+                                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 1)
+                                cv2.putText(frame, f"{label}: {ear_prob:.2f}", (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
+
+                        cv2.putText(frame, f"EAR: {ear:.3f} (MediaPipe Fallback)", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+                        cv2.putText(frame, "Haar Cascades: FAILED", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 100, 255), 1)
+
                 elif len(faces) > 0:
                     state = "Open"
+                    r_prob = 0.0
+                    l_prob = 0.0
                 else:
                     state = "No Face"
+                    r_prob = 0.0
+                    l_prob = 0.0
 
             if state == "Open":
                 score -= 1
