@@ -83,17 +83,17 @@ while True:
         
         if r_detected and l_detected:
             # If BOTH eyes are detected, BOTH must be classified as closed to trigger drowsiness
-            if r_closed_prob >= 0.5 and l_closed_prob >= 0.5:
+            if r_closed_prob >= 0.90 and l_closed_prob >= 0.90:
                 state = "Closed"
             else:
                 state = "Open"
         elif r_detected:
-            if r_closed_prob >= 0.5:
+            if r_closed_prob >= 0.90:
                 state = "Closed"
             else:
                 state = "Open"
         elif l_detected:
-            if l_closed_prob >= 0.5:
+            if l_closed_prob >= 0.90:
                 state = "Closed"
             else:
                 state = "Open"
