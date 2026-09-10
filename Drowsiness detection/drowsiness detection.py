@@ -9,7 +9,8 @@ import threading
 import webbrowser
 import time
 import mediapipe as mp
-
+import requests
+import json
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
     try:
@@ -66,10 +67,38 @@ stress_score = 0
 rppg_buffer = []
 bpm = 0
 
+# IoT Integration
+iot_triggered = False
+last_iot_trigger_time = 0
+IOT_COOLDOWN = 10 # seconds
+
+def trigger_smart_cabin():
+    global iot_triggered, last_iot_trigger_time
+    # Run asynchronously to avoid blocking the video feed
+    def _fire_webhook():
+        try:
+            payload = {
+                "action": "emergency_wake",
+                "windows": "down",
+                "ac": "max",
+                "lights": "strobe"
+            }
+            # Using localhost for mock demonstration. Real world = car API URL.
+            requests.post("http://127.0.0.1:5000/api/smart_car", json=payload, timeout=2)
+        except:
+            pass
+    
+    current_time = time.time()
+    if current_time - last_iot_trigger_time > IOT_COOLDOWN:
+        last_iot_trigger_time = current_time
+        iot_triggered = True
+        threading.Thread(target=_fire_webhook, daemon=True).start()
+
 def generate_frames():
     global score, state, r_prob, l_prob, debug_mode
     global total_alarms_prevented, yawn_count, distraction_score, yawn_score, is_yawning, is_distracted
     global is_calibrating, calibration_frames, baseline_mar, baseline_brow_dist, is_stressed, stress_score, rppg_buffer, bpm
+    global iot_triggered, last_iot_trigger_time
     cap = cv2.VideoCapture(0)
     
     while True:
@@ -272,6 +301,7 @@ def generate_frames():
         if score > 30:
             if score == 31: 
                 total_alarms_prevented += 1
+            trigger_smart_cabin()
             try:
                 if score < 60:
                     sound.set_volume(0.5)
@@ -318,22 +348,34 @@ def video_feed():
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/status')
-def get_status():
+def status():
     global score, state, r_prob, l_prob, debug_mode
-    global is_yawning, is_distracted
-    global is_calibrating, is_stressed, bpm
+    global total_alarms_prevented, yawn_count, session_start_time, distraction_score, is_yawning, is_distracted
+    global is_calibrating, is_stressed, bpm, iot_triggered
+    
+    elapsed_time = int(time.time() - session_start_time)
+    
     return jsonify({
-        'score': score,
-        'state': state,
-        'r_prob': r_prob,
-        'l_prob': l_prob,
-        'debug_mode': debug_mode,
-        'is_yawning': is_yawning,
-        'is_distracted': is_distracted,
-        'is_calibrating': is_calibrating,
-        'is_stressed': is_stressed,
-        'bpm': bpm
+        "score": score,
+        "state": state,
+        "r_prob": r_prob,
+        "l_prob": l_prob,
+        "debug": debug_mode,
+        "alarms": total_alarms_prevented,
+        "yawns": yawn_count,
+        "distracted": is_distracted,
+        "yawning": is_yawning,
+        "time_elapsed": elapsed_time,
+        "is_calibrating": is_calibrating,
+        "is_stressed": is_stressed,
+        "bpm": bpm,
+        "iot_triggered": iot_triggered
     })
+
+@app.route('/api/smart_car', methods=['POST'])
+def mock_smart_car_api():
+    # Mock IoT API that accepts the webhook from the AI logic
+    return jsonify({"status": "success", "message": "Smart Cabin Emergency Protocol Activated"})
 
 @app.route('/stop_system', methods=['POST'])
 def stop_system():
