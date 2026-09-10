@@ -273,6 +273,7 @@
                 <span id="status-text">Active</span>
             </div>
             <div class="toolbar">
+                <button class="tool-btn" id="ai-vision-btn" onclick="toggleDebug()" title="AI Vision Mode">🤖</button>
                 <button class="tool-btn" onclick="zoomIn()" title="Zoom In">➕</button>
                 <button class="tool-btn" onclick="zoomOut()" title="Zoom Out">➖</button>
                 <button class="tool-btn" onclick="resetZoom()" title="Reset Zoom">🔄</button>
@@ -437,6 +438,23 @@
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+        }
+
+        // AI Vision Toggle
+        function toggleDebug() {
+            fetch('/toggle_debug', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    const btn = document.getElementById('ai-vision-btn');
+                    if(data.debug_mode) {
+                        btn.style.background = 'rgba(0, 255, 0, 0.4)';
+                        btn.style.boxShadow = '0 0 10px rgba(0,255,0,0.5)';
+                    } else {
+                        btn.style.background = '';
+                        btn.style.boxShadow = '';
+                    }
+                })
+                .catch(err => console.error("Error toggling debug:", err));
         }
     </script>
 </body>

@@ -37,9 +37,10 @@ score = 0
 state = "Open"
 r_prob = 0.0
 l_prob = 0.0
+debug_mode = False
 
 def generate_frames():
-    global score, state, r_prob, l_prob
+    global score, state, r_prob, l_prob, debug_mode
     cap = cv2.VideoCapture(0)
     
     while True:
@@ -60,25 +61,41 @@ def generate_frames():
 
         rpred = None
         lpred = None
+        r_eye_disp = None
+        l_eye_disp = None
 
         for (x, y, w, h) in right_eye:
             r_eye = frame[y:y + h, x:x + w]
-            r_eye = cv2.cvtColor(r_eye, cv2.COLOR_BGR2GRAY)
-            r_eye = cv2.resize(r_eye, (24, 24))
-            r_eye = r_eye / 255
+            r_eye_gray = cv2.cvtColor(r_eye, cv2.COLOR_BGR2GRAY)
+            r_eye_24 = cv2.resize(r_eye_gray, (24, 24))
+            r_eye_disp = r_eye_24.copy()
+            r_eye = r_eye_24 / 255
             r_eye = r_eye.reshape(24, 24, -1)
             r_eye = np.expand_dims(r_eye, axis=0)
             rpred = model.predict(r_eye)
+            if debug_mode:
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                cx, cy = x + w//2, y + h//2
+                cv2.line(frame, (cx-10, cy), (cx+10, cy), (0, 255, 0), 1)
+                cv2.line(frame, (cx, cy-10), (cx, cy+10), (0, 255, 0), 1)
+                cv2.putText(frame, f"R: {float(rpred[0][0]):.2f}", (x, y-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
             break
 
         for (x, y, w, h) in left_eye:
             l_eye = frame[y:y + h, x:x + w]
-            l_eye = cv2.cvtColor(l_eye, cv2.COLOR_BGR2GRAY)
-            l_eye = cv2.resize(l_eye, (24, 24))
-            l_eye = l_eye / 255
+            l_eye_gray = cv2.cvtColor(l_eye, cv2.COLOR_BGR2GRAY)
+            l_eye_24 = cv2.resize(l_eye_gray, (24, 24))
+            l_eye_disp = l_eye_24.copy()
+            l_eye = l_eye_24 / 255
             l_eye = l_eye.reshape(24, 24, -1)
             l_eye = np.expand_dims(l_eye, axis=0)
             lpred = model.predict(l_eye)
+            if debug_mode:
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                cx, cy = x + w//2, y + h//2
+                cv2.line(frame, (cx-10, cy), (cx+10, cy), (0, 255, 0), 1)
+                cv2.line(frame, (cx, cy-10), (cx, cy+10), (0, 255, 0), 1)
+                cv2.putText(frame, f"L: {float(lpred[0][0]):.2f}", (x, y-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
             break
             
         r_detected = rpred is not None
@@ -129,21 +146,22 @@ def generate_frames():
             except:
                 pass
                 
-        # Add the original OpenCV interface overlays directly onto the frame
-        font = cv2.FONT_HERSHEY_COMPLEX_SMALL
-        
-        # Right & Left Eye Probabilities (Top Left in Cyan)
-        cv2.putText(frame, f"R_Close_Prob: {r_prob:.2f}", (10, 20), font, 1, (255, 255, 0), 1, cv2.LINE_AA)
-        cv2.putText(frame, f"L_Close_Prob: {l_prob:.2f}", (10, 40), font, 1, (255, 255, 0), 1, cv2.LINE_AA)
+        # Debug Mode Overlays
+        if debug_mode:
+            disp_size = 120
+            if r_eye_disp is not None:
+                r_eye_color = cv2.cvtColor(r_eye_disp, cv2.COLOR_GRAY2BGR)
+                r_eye_big = cv2.resize(r_eye_color, (disp_size, disp_size), interpolation=cv2.INTER_NEAREST)
+                frame[0:disp_size, width-disp_size:width] = r_eye_big
+                cv2.rectangle(frame, (width-disp_size, 0), (width, disp_size), (0,255,0), 2)
+                cv2.putText(frame, "AI Input R", (width-disp_size+5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+            if l_eye_disp is not None:
+                l_eye_color = cv2.cvtColor(l_eye_disp, cv2.COLOR_GRAY2BGR)
+                l_eye_big = cv2.resize(l_eye_color, (disp_size, disp_size), interpolation=cv2.INTER_NEAREST)
+                frame[0:disp_size, 0:disp_size] = l_eye_big
+                cv2.rectangle(frame, (0, 0), (disp_size, disp_size), (0,255,0), 2)
+                cv2.putText(frame, "AI Input L", (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
 
-        # Closed Score (Bottom Left with Black Background)
-        cv2.rectangle(frame, (0, height - 40), (200, height), (0, 0, 0), thickness=cv2.FILLED)
-        cv2.putText(frame, f"Closed Score:{score}", (10, height - 15), font, 1, (255, 255, 255), 1, cv2.LINE_AA)
-
-        # Draw red border if alarm is triggered
-        if score > 30:
-            cv2.rectangle(frame, (0, 0), (width, height), (0, 0, 255), 10)
-            
         # We don't use cv2.imshow anymore. Encode for web MJPEG stream.
         ret, buffer = cv2.imencode('.jpg', frame)
         frame_bytes = buffer.tobytes()
@@ -160,13 +178,20 @@ def video_feed():
 
 @app.route('/status')
 def get_status():
-    global score, state, r_prob, l_prob
+    global score, state, r_prob, l_prob, debug_mode
     return jsonify({
         'score': score,
         'state': state,
         'r_prob': r_prob,
-        'l_prob': l_prob
+        'l_prob': l_prob,
+        'debug_mode': debug_mode
     })
+
+@app.route('/toggle_debug', methods=['POST'])
+def toggle_debug():
+    global debug_mode
+    debug_mode = not debug_mode
+    return jsonify({'debug_mode': debug_mode})
 
 def open_browser():
     # Wait a tiny bit for the server to spin up
