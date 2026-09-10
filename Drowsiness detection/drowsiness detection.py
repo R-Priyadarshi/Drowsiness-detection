@@ -388,9 +388,10 @@ def generate_frames():
             l_detected = lpred is not None
 
             if r_detected or l_detected:
-                # Model outputs 1 for Open, 0 for Closed. We map to closed probability.
-                r_closed_prob = 1.0 - float(rpred[0][0]) if r_detected else 0.0
-                l_closed_prob = 1.0 - float(lpred[0][0]) if l_detected else 0.0
+                # Model has 2 softmax outputs: [closed_prob, open_prob]
+                # rpred[0][0] IS the closed probability directly - no inversion needed
+                r_closed_prob = float(rpred[0][0]) if r_detected else 0.0
+                l_closed_prob = float(lpred[0][0]) if l_detected else 0.0
                 
                 r_prob = r_closed_prob
                 l_prob = l_closed_prob
