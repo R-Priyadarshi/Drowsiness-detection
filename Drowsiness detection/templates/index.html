@@ -74,6 +74,7 @@
         
         /* Chart Containers */
         .chart-container { width: 100%; height: 120px; margin-top: 10px; }
+    </style>
 
     <style>
         :root {
@@ -683,20 +684,21 @@
                 </div>
                 <div class="chart-container"><canvas id="scoreChart"></canvas></div>
             </div>
-                <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 0.75rem; color: var(--text-muted);">
-                    <span>0 (Awake)</span>
-                    <span>30 (Alarm)</span>
-                </div>
-            </div>
 
             <!-- Eye & Heart Stats -->
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                 <div class="card eye-card" draggable="true">
-                    <div class="eye-label">L-Eye Close Prob</div>
+                    <div class="card-header" onclick="this.parentElement.classList.toggle('collapsed')" style="margin-bottom: 4px;">
+                        <div class="eye-label" style="margin-bottom: 0;">L-Eye Close Prob</div>
+                        <div class="collapse-icon">▼</div>
+                    </div>
                     <div class="eye-val" id="left-eye-val">0.00</div>
                 </div>
                 <div class="card eye-card" draggable="true">
-                    <div class="eye-label">R-Eye Close Prob</div>
+                    <div class="card-header" onclick="this.parentElement.classList.toggle('collapsed')" style="margin-bottom: 4px;">
+                        <div class="eye-label" style="margin-bottom: 0;">R-Eye Close Prob</div>
+                        <div class="collapse-icon">▼</div>
+                    </div>
                     <div class="eye-val" id="right-eye-val">0.00</div>
                 </div>
             </div>
@@ -735,6 +737,20 @@
         </div>
     </div>
 
+    <!-- Settings Modal -->
+    <div id="settings-modal">
+        <h2 style="margin-bottom: 20px;">System Settings</h2>
+        <label style="color: var(--text-muted); font-size: 0.8rem;">IoT Webhook URL (Emergency Action)</label>
+        <input type="text" id="iot-url" class="settings-input" value="http://127.0.0.1:5000/api/smart_car">
+        <label style="color: var(--text-muted); font-size: 0.8rem;">Dashboard Theme</label>
+        <select id="theme-select" class="settings-input" onchange="changeTheme()">
+            <option value="glass">Sci-Fi Glass (Default)</option>
+            <option value="night">Night Vision (Red)</option>
+            <option value="day">Day Mode (Light)</option>
+        </select>
+        <button class="init-btn" style="width: 100%; padding: 10px;" onclick="saveSettings()">Save & Close</button>
+    </div>
+
     <script>
         const scoreVal = document.getElementById('score-val');
         const scoreBar = document.getElementById('score-bar');
@@ -744,6 +760,7 @@
         const statusText = document.getElementById('status-text');
         const statusDot = document.getElementById('status-dot');
         const calibOverlay = document.getElementById('calibration-overlay');
+        const systemStateEl = document.getElementById('system-state');
 
         // Fetch status constantly
         setInterval(() => {
@@ -752,6 +769,7 @@
                 .then(data => {
                     
                     scoreVal.textContent = data.score;
+                    if (systemStateEl) systemStateEl.textContent = data.state;
                     // Update Charts
                     if (typeof scoreChart !== 'undefined') {
                         const sData = scoreChart.data.datasets[0].data;
