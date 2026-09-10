@@ -14,7 +14,6 @@ import numpy as np
 from pygame import mixer
 import threading
 
-camera_lock = threading.Lock()
 import webbrowser
 import time
 import mediapipe as mp
@@ -78,6 +77,7 @@ distraction_score = 0
 yawn_score = 0
 is_yawning = False
 is_distracted = False
+alarm_playing = False  # Track whether alarm sound is currently active
 
 # God-Tier Variables
 is_calibrating = True
@@ -103,6 +103,8 @@ def trigger_smart_cabin():
     # Run asynchronously to avoid blocking the video feed
     def _fire_webhook():
         try:
+            if not iot_webhook_url:
+                return
             payload = {
                 "action": "emergency_wake",
                 "windows": "down",
@@ -138,6 +140,7 @@ def generate_frames():
     global total_alarms_prevented, yawn_count, distraction_score, yawn_score, is_yawning, is_distracted
     global is_calibrating, calibration_frames, baseline_mar, baseline_brow_dist, is_stressed, stress_score, rppg_buffer, bpm
     global iot_triggered, last_iot_trigger_time, iot_webhook_url
+    global alarm_playing
     
     cap = get_working_camera()
     consecutive_failures = 0
@@ -190,7 +193,8 @@ def generate_frames():
                 results = DummyResults()
                 
             if results.multi_face_landmarks:
-                is_distracted = False
+                # Face detected - decrement distraction score (but don't reset is_distracted flag here;
+                # it's managed below based on distraction_score threshold)
                 distraction_score -= 1
                 if distraction_score < 0: distraction_score = 0
                 
@@ -446,12 +450,15 @@ def generate_frames():
                         sound.set_volume(0.5)
                     else:
                         sound.set_volume(1.0)
-                    sound.play(loops=-1)  # Play continuously until stopped
+                    if not alarm_playing:
+                        sound.play(loops=-1)  # Start continuous alarm ONCE
+                        alarm_playing = True
                 except:
                     pass
             else:
                 try:
                     sound.stop()
+                    alarm_playing = False
                 except:
                     pass
                     
@@ -557,6 +564,7 @@ def start_system():
     global bpm, is_stressed, system_running, distraction_score, yawn_score, stress_score
     global is_calibrating, calibration_frames, baseline_mar, baseline_brow_dist, rppg_buffer
     global iot_triggered, is_yawning, is_distracted, state, r_prob, l_prob
+    global alarm_playing
     
     # Reset ALL state - nothing carries over from previous session
     session_start_time = time.time()
@@ -571,6 +579,7 @@ def start_system():
     is_yawning = False
     is_distracted = False
     iot_triggered = False
+    alarm_playing = False
     state = "Open"
     r_prob = 0.0
     l_prob = 0.0
