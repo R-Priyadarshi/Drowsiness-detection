@@ -19,7 +19,7 @@ import time
 import mediapipe as mp
 import mediapipe.python.solutions.face_mesh as face_mesh_solution
 import requests
-import json
+from flask import request
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
     try:
@@ -153,10 +153,10 @@ def generate_frames():
         try:
             ret, frame = cap.read()
             
-            # Check if frame is black (hardware/driver glitch)
+            # Check if frame is valid
             if ret and frame is not None:
-                if np.mean(frame) < 1.0:
-                    ret = False  # Force reconnect
+                if frame.size == 0:
+                    ret = False  # Empty frame, force reconnect
 
             if not ret:
                 consecutive_failures += 1
@@ -315,19 +315,28 @@ def generate_frames():
                 try: sound_distracted.stop()
                 except: pass
 
+            # Detect faces first with Haar cascade
             if not face_cascade.empty():
                 faces = face_cascade.detectMultiScale(gray, minNeighbors=5, scaleFactor=1.1, minSize=(25, 25))
             else:
                 faces = []
-                
-            if not leye_cascade.empty():
-                left_eye = leye_cascade.detectMultiScale(gray)
+
+            # Detect eyes ONLY within the face bounding box to avoid false positives
+            # from dashboard lights, reflections, etc.
+            face_roi_gray = None
+            face_x, face_y, face_w, face_h = 0, 0, 0, 0
+            if len(faces) > 0:
+                face_x, face_y, face_w, face_h = faces[0]
+                face_roi_gray = gray[face_y:face_y+face_h, face_x:face_x+face_w]
+            
+            if face_roi_gray is not None and face_roi_gray.size > 0:
+                left_eye_local = leye_cascade.detectMultiScale(face_roi_gray) if not leye_cascade.empty() else []
+                right_eye_local = reye_cascade.detectMultiScale(face_roi_gray) if not reye_cascade.empty() else []
+                # Convert local face-ROI coordinates back to full-frame coordinates
+                left_eye = [(face_x + ex, face_y + ey, ew, eh) for (ex, ey, ew, eh) in left_eye_local]
+                right_eye = [(face_x + ex, face_y + ey, ew, eh) for (ex, ey, ew, eh) in right_eye_local]
             else:
                 left_eye = []
-                
-            if not reye_cascade.empty():
-                right_eye = reye_cascade.detectMultiScale(gray)
-            else:
                 right_eye = []
 
             # Draw rects
@@ -444,7 +453,7 @@ def generate_frames():
             if score > 30:
                 if score == 31: 
                     total_alarms_prevented += 1
-                trigger_smart_cabin()
+                    trigger_smart_cabin()  # Only trigger IoT once when alarm first fires
                 try:
                     if score < 45:
                         sound.set_volume(0.5)
@@ -547,7 +556,6 @@ def mock_smart_car_api():
     # Mock IoT API that accepts the webhook from the AI logic
     return jsonify({"status": "success", "message": "Smart Cabin Emergency Protocol Activated"})
 
-from flask import request
 
 @app.route('/api/settings', methods=['POST'])
 def update_settings():
