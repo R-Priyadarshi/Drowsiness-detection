@@ -6,6 +6,8 @@ from keras.models import load_model
 import numpy as np
 from pygame import mixer
 import threading
+
+camera_lock = threading.Lock()
 import webbrowser
 import time
 import mediapipe as mp
@@ -108,14 +110,26 @@ def generate_frames():
     global total_alarms_prevented, yawn_count, distraction_score, yawn_score, is_yawning, is_distracted
     global is_calibrating, calibration_frames, baseline_mar, baseline_brow_dist, is_stressed, stress_score, rppg_buffer, bpm
     global iot_triggered, last_iot_trigger_time, iot_webhook_url
-    cap = cv2.VideoCapture(0)
+    with camera_lock:
+        cap = cv2.VideoCapture(0)
     
     while True:
         if not system_running:
             break
-        ret, frame = cap.read()
-        if not ret:
-            break
+        with camera_lock:
+            ret, frame = cap.read()
+            if not ret:
+                # Fallback: No camera frame
+                import numpy as np
+                frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(frame, "NO CAMERA DETECTED", (150, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                ret, buffer = cv2.imencode('.jpg', frame)
+                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+                time.sleep(1) # wait before retrying
+                # Try reconnecting
+                cap.release()
+                cap = cv2.VideoCapture(0)
+                continue
             
         height, width = frame.shape[:2]
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -157,9 +171,10 @@ def generate_frames():
                 if yawn_score > 30: yawn_score = 30 # Cap max score
                 if yawn_score > 15: # half a second
                     is_yawning = True
-                    try: sound_yawn.play()
-                    except: pass
-                    if yawn_score == 16: yawn_count += 1
+                    if yawn_score == 16: 
+                        yawn_count += 1
+                        try: sound_yawn.play()
+                        except: pass
             else:
                 yawn_score -= 1
                 if yawn_score < 0: yawn_score = 0
@@ -220,9 +235,10 @@ def generate_frames():
             
         if distraction_score > 60: distraction_score = 60 # Cap max score
         if distraction_score > 45: # 1.5 seconds of distraction
+            if not is_distracted:
+                try: sound_distracted.play()
+                except: pass
             is_distracted = True
-            try: sound_distracted.play()
-            except: pass
         else:
             is_distracted = False
             try: sound_distracted.stop()
@@ -361,7 +377,8 @@ def generate_frames():
         except Exception:
             break
                
-    cap.release()
+    with camera_lock:
+        cap.release()
 
 @app.route('/')
 def index():
