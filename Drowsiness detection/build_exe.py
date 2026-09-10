@@ -33,7 +33,9 @@ def main():
         "--windowed", # Don't open a console window
         "--name", "DrowsinessDetector",
         "--collect-all", "cv2",
-        "--collect-all", "mediapipe"
+        "--collect-all", "mediapipe",
+        "--hidden-import", "mediapipe.python.solutions",
+        "--hidden-import", "mediapipe.python.solutions.face_mesh"
     ]
     
     for data in data_files:
