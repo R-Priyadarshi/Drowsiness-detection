@@ -52,7 +52,11 @@ leye_cascade = cv2.CascadeClassifier(resource_path(os.path.join('haar cascade fi
 reye_cascade = cv2.CascadeClassifier(resource_path(os.path.join('haar cascade files','haarcascade_righteye_2splits.xml')))
 
 # Initialize Model
-model = load_model(resource_path(os.path.join('models','cnnCat2.h5')))
+try:
+    model = load_model(resource_path(os.path.join('models','cnnCat2.h5')))
+except Exception as e:
+    print(f"Warning: AI Model could not be loaded. Eye detection disabled. {e}")
+    model = None
 
 # Global state variables for the frontend to poll
 score = 0
@@ -111,31 +115,48 @@ def trigger_smart_cabin():
         iot_triggered = True
         threading.Thread(target=_fire_webhook, daemon=True).start()
 
+def get_working_camera():
+    # Try indices 0, 1, 2 for a working camera
+    for idx in [0, 1, 2]:
+        cap = cv2.VideoCapture(idx)
+        if cap.isOpened():
+            ret, _ = cap.read()
+            if ret:
+                return cap
+        cap.release()
+    return cv2.VideoCapture(0) # Fallback
+
+model_lock = threading.Lock()
+
 def generate_frames():
     global score, state, r_prob, l_prob, debug_mode
     global total_alarms_prevented, yawn_count, distraction_score, yawn_score, is_yawning, is_distracted
     global is_calibrating, calibration_frames, baseline_mar, baseline_brow_dist, is_stressed, stress_score, rppg_buffer, bpm
     global iot_triggered, last_iot_trigger_time, iot_webhook_url
+    
     with camera_lock:
-        cap = cv2.VideoCapture(0)
+        cap = get_working_camera()
     
     while True:
         if not system_running:
             break
+        
         with camera_lock:
             ret, frame = cap.read()
-            if not ret:
-                # Fallback: No camera frame
-                import numpy as np
-                frame = np.zeros((480, 640, 3), dtype=np.uint8)
-                cv2.putText(frame, "NO CAMERA DETECTED", (150, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                ret, buffer = cv2.imencode('.jpg', frame)
-                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-                time.sleep(2) # Wait slightly longer before retrying to prevent CPU spike
-                # Try reconnecting
+            
+        if not ret:
+            # Fallback: No camera frame
+            import numpy as np
+            frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            cv2.putText(frame, "NO CAMERA DETECTED", (150, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            ret, buffer = cv2.imencode('.jpg', frame)
+            yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+            time.sleep(1.0) # Sleep OUTSIDE the lock
+            # Try reconnecting
+            with camera_lock:
                 cap.release()
-                cap = cv2.VideoCapture(0)
-                continue
+                cap = get_working_camera()
+            continue
             
         height, width = frame.shape[:2]
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -250,9 +271,20 @@ def generate_frames():
             try: sound_distracted.stop()
             except: pass
 
-        faces = face_cascade.detectMultiScale(gray, minNeighbors=5, scaleFactor=1.1, minSize=(25, 25))
-        left_eye = leye_cascade.detectMultiScale(gray)
-        right_eye = reye_cascade.detectMultiScale(gray)
+        if not face_cascade.empty():
+            faces = face_cascade.detectMultiScale(gray, minNeighbors=5, scaleFactor=1.1, minSize=(25, 25))
+        else:
+            faces = []
+            
+        if not leye_cascade.empty():
+            left_eye = leye_cascade.detectMultiScale(gray)
+        else:
+            left_eye = []
+            
+        if not reye_cascade.empty():
+            right_eye = reye_cascade.detectMultiScale(gray)
+        else:
+            right_eye = []
 
         # Draw rects
         for (x, y, w, h) in faces:
@@ -264,6 +296,7 @@ def generate_frames():
         l_eye_disp = None
 
         for (x, y, w, h) in right_eye:
+            if model is None: break
             r_eye = frame[y:y + h, x:x + w]
             if r_eye.size == 0: continue
             r_eye_gray = cv2.cvtColor(r_eye, cv2.COLOR_BGR2GRAY)
@@ -272,7 +305,13 @@ def generate_frames():
             r_eye = r_eye_24 / 255
             r_eye = r_eye.reshape(24, 24, -1)
             r_eye = np.expand_dims(r_eye, axis=0)
-            rpred = model.predict(r_eye)
+            
+            with model_lock:
+                try:
+                    rpred = model.predict(r_eye, verbose=0)
+                except Exception:
+                    rpred = np.array([[1.0]]) # Fallback to open if model crashes
+                    
             if debug_mode:
                 cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
                 cx, cy = x + w//2, y + h//2
@@ -282,6 +321,7 @@ def generate_frames():
             break
 
         for (x, y, w, h) in left_eye:
+            if model is None: break
             l_eye = frame[y:y + h, x:x + w]
             if l_eye.size == 0: continue
             l_eye_gray = cv2.cvtColor(l_eye, cv2.COLOR_BGR2GRAY)
@@ -290,7 +330,13 @@ def generate_frames():
             l_eye = l_eye_24 / 255
             l_eye = l_eye.reshape(24, 24, -1)
             l_eye = np.expand_dims(l_eye, axis=0)
-            lpred = model.predict(l_eye)
+            
+            with model_lock:
+                try:
+                    lpred = model.predict(l_eye, verbose=0)
+                except Exception:
+                    lpred = np.array([[1.0]]) # Fallback
+                    
             if debug_mode:
                 cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
                 cx, cy = x + w//2, y + h//2
@@ -476,6 +522,10 @@ def stop_system():
     
     # Return trip report and trigger hard shutdown
     def hard_shutdown():
+        try:
+            mixer.quit()
+        except:
+            pass
         time.sleep(1) # Give the frontend time to receive the response
         os._exit(0)
     threading.Thread(target=hard_shutdown, daemon=True).start()
