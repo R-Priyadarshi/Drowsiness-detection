@@ -11,6 +11,8 @@ camera_lock = threading.Lock()
 import webbrowser
 import time
 import mediapipe as mp
+import mediapipe.python.solutions
+import mediapipe.python.solutions.face_mesh
 import requests
 import json
 def resource_path(relative_path):
