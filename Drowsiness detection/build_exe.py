@@ -23,7 +23,8 @@ def main():
         f"yawn.wav{separator}.",
         f"models{separator}models",
         f"haar cascade files{separator}haar cascade files",
-        f"templates{separator}templates"
+        f"templates{separator}templates",
+        f"static{separator}static"
     ]
     
     cmd = [
