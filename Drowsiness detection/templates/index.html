@@ -425,6 +425,40 @@
                 grid-template-columns: 1fr;
             }
         }
+        
+        /* Calibration Overlay */
+        .calibration-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+            backdrop-filter: blur(5px);
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+        
+        .calibration-overlay.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+        
+        .calibration-text {
+            color: #00ff88;
+            font-size: 2rem;
+            letter-spacing: 2px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+        
+        .calibration-subtext {
+            color: #ccc;
+            font-size: 1rem;
+        }
     </style>
 </head>
 <body>
@@ -444,6 +478,10 @@
         <!-- Video Feed -->
         <div class="video-container">
             <img src="" data-src="{{ url_for('video_feed') }}" alt="Camera Feed" id="video-feed">
+            <div class="calibration-overlay" id="calibration-overlay">
+                <div class="calibration-text">Calibrating AI</div>
+                <div class="calibration-subtext">Please look straight ahead naturally...</div>
+            </div>
             <div class="status-overlay">
                 <div class="status-dot" id="status-dot"></div>
                 <span id="status-text">Active</span>
@@ -483,18 +521,19 @@
                 </div>
             </div>
 
-            <!-- Eye Tracking Card -->
-            <div class="card">
-                <div class="card-title">Neural Network Confidence</div>
-                <div class="eye-stats">
-                    <div class="eye-card">
-                        <div class="eye-label">Left Eye Closed</div>
-                        <div class="eye-val" id="left-eye-val">0.00</div>
-                    </div>
-                    <div class="eye-card">
-                        <div class="eye-label">Right Eye Closed</div>
-                        <div class="eye-val" id="right-eye-val">0.00</div>
-                    </div>
+            <!-- Eye & Heart Stats -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;">
+                <div class="card eye-card">
+                    <div class="eye-label">L-Eye Close Prob</div>
+                    <div class="eye-val" id="left-eye-val">0.00</div>
+                </div>
+                <div class="card eye-card">
+                    <div class="eye-label">R-Eye Close Prob</div>
+                    <div class="eye-val" id="right-eye-val">0.00</div>
+                </div>
+                <div class="card eye-card">
+                    <div class="eye-label">Heart Rate (rPPG)</div>
+                    <div class="eye-val" id="bpm-val" style="color: #ff44aa;">-- BPM</div>
                 </div>
             </div>
             
@@ -513,6 +552,7 @@
             <div class="trip-stat"><span>Drive Time:</span> <span id="trip-time">0s</span></div>
             <div class="trip-stat"><span>Micro-Sleeps Prevented:</span> <span id="trip-alarms">0</span></div>
             <div class="trip-stat"><span>Yawns Detected:</span> <span id="trip-yawns">0</span></div>
+            <div class="trip-stat"><span>Avg Heart Rate:</span> <span id="trip-bpm">-- BPM</span></div>
             <div style="margin-top: 32px; font-size: 0.8rem; color: var(--text-muted); letter-spacing: 2px;">SYSTEM OFFLINE</div>
         </div>
     </div>
@@ -522,9 +562,10 @@
         const scoreBar = document.getElementById('score-bar');
         const leftEyeVal = document.getElementById('left-eye-val');
         const rightEyeVal = document.getElementById('right-eye-val');
-        const systemState = document.getElementById('system-state');
+        const bpmVal = document.getElementById('bpm-val');
         const statusText = document.getElementById('status-text');
         const statusDot = document.getElementById('status-dot');
+        const calibOverlay = document.getElementById('calibration-overlay');
 
         // Fetch status constantly
         setInterval(() => {
@@ -536,26 +577,43 @@
                     rightEyeVal.textContent = data.r_prob.toFixed(2);
                     scoreBar.style.width = Math.min(100, (data.score / 30) * 100) + '%';
                     
-                    if (data.score > 30) {
-                        statusText.textContent = "ASLEEP - ALARM!";
-                        statusDot.style.background = "#ff4444";
-                        document.body.classList.add('danger-state');
-                    } else if (data.is_distracted) {
-                        statusText.textContent = "DISTRACTED";
-                        statusDot.style.background = "#ffaa00";
-                        document.body.classList.remove('danger-state');
-                    } else if (data.is_yawning) {
-                        statusText.textContent = "YAWNING";
-                        statusDot.style.background = "#ff8800";
-                        document.body.classList.remove('danger-state');
-                    } else if (data.state === "No Face") {
-                        statusText.textContent = "No Face Detected";
-                        statusDot.style.background = "#888";
-                        document.body.classList.remove('danger-state');
-                    } else {
-                        statusText.textContent = "Active & Awake";
+                    if (data.bpm > 0) {
+                        bpmVal.textContent = data.bpm + ' BPM';
+                    }
+                    
+                    if (data.is_calibrating) {
+                        calibOverlay.classList.add('visible');
+                        statusText.textContent = "Calibrating";
                         statusDot.style.background = "#00ff88";
                         document.body.classList.remove('danger-state');
+                    } else {
+                        calibOverlay.classList.remove('visible');
+                        
+                        if (data.score > 30) {
+                            statusText.textContent = "ASLEEP - ALARM!";
+                            statusDot.style.background = "#ff4444";
+                            document.body.classList.add('danger-state');
+                        } else if (data.is_stressed) {
+                            statusText.textContent = "STRESSED/ANGRY";
+                            statusDot.style.background = "#8a2be2"; // Purple for road rage
+                            document.body.classList.remove('danger-state');
+                        } else if (data.is_distracted) {
+                            statusText.textContent = "DISTRACTED";
+                            statusDot.style.background = "#ffaa00";
+                            document.body.classList.remove('danger-state');
+                        } else if (data.is_yawning) {
+                            statusText.textContent = "YAWNING";
+                            statusDot.style.background = "#ff8800";
+                            document.body.classList.remove('danger-state');
+                        } else if (data.state === "No Face") {
+                            statusText.textContent = "No Face Detected";
+                            statusDot.style.background = "#888";
+                            document.body.classList.remove('danger-state');
+                        } else {
+                            statusText.textContent = "Active & Awake";
+                            statusDot.style.background = "#00ff88";
+                            document.body.classList.remove('danger-state');
+                        }
                     }
                 })
                 .catch(err => console.error('Error fetching status:', err));
@@ -583,6 +641,7 @@
                     document.getElementById('trip-time').textContent = Math.floor(data.uptime_seconds / 60) + 'm ' + (data.uptime_seconds % 60) + 's';
                     document.getElementById('trip-alarms').textContent = data.alarms_prevented;
                     document.getElementById('trip-yawns').textContent = data.yawn_count;
+                    document.getElementById('trip-bpm').textContent = (data.bpm > 0) ? (data.bpm + ' BPM') : 'N/A';
                     
                     // Stop video stream
                     document.getElementById('video-feed').src = "";
