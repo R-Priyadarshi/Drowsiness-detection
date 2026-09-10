@@ -1,6 +1,12 @@
 import cv2
 import os
 import sys
+
+# Suppress TensorFlow and CUDA logging spam
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+import logging
+logging.getLogger('tensorflow').setLevel(logging.FATAL)
+
 from flask import Flask, render_template, Response, jsonify
 from keras.models import load_model
 import numpy as np
@@ -11,8 +17,6 @@ camera_lock = threading.Lock()
 import webbrowser
 import time
 import mediapipe as mp
-import mediapipe.python.solutions
-import mediapipe.python.solutions.face_mesh
 import requests
 import json
 def resource_path(relative_path):
@@ -24,7 +28,7 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
-app = Flask(__name__, template_folder=resource_path('templates'))
+app = Flask(__name__, template_folder=resource_path('templates'), static_folder=resource_path('static'))
 
 # Initialize Audio
 sound = None
@@ -127,7 +131,7 @@ def generate_frames():
                 cv2.putText(frame, "NO CAMERA DETECTED", (150, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                 ret, buffer = cv2.imencode('.jpg', frame)
                 yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-                time.sleep(1) # wait before retrying
+                time.sleep(2) # Wait slightly longer before retrying to prevent CPU spike
                 # Try reconnecting
                 cap.release()
                 cap = cv2.VideoCapture(0)
@@ -470,7 +474,12 @@ def stop_system():
     # Calculate totals
     uptime = time.time() - session_start_time
     
-    # Return trip report
+    # Return trip report and trigger hard shutdown
+    def hard_shutdown():
+        time.sleep(1) # Give the frontend time to receive the response
+        os._exit(0)
+    threading.Thread(target=hard_shutdown, daemon=True).start()
+    
     return jsonify({
         'uptime_seconds': int(uptime),
         'alarms_prevented': total_alarms_prevented,
@@ -484,14 +493,23 @@ def toggle_debug():
     debug_mode = not debug_mode
     return jsonify({'debug_mode': debug_mode})
 
-def open_browser():
+def find_free_port(start_port=5000, max_port=5100):
+    import socket
+    for port in range(start_port, max_port):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(('127.0.0.1', port)) != 0:
+                return port
+    return 5000 # Fallback
+
+def open_browser(port):
     # Wait a tiny bit for the server to spin up
     time.sleep(1.5)
-    webbrowser.open_new("http://127.0.0.1:5000/")
+    webbrowser.open_new(f"http://127.0.0.1:{port}/")
 
 if __name__ == '__main__':
+    active_port = find_free_port()
     # Start the browser thread
-    threading.Thread(target=open_browser, daemon=True).start()
+    threading.Thread(target=open_browser, args=(active_port,), daemon=True).start()
     
     # In PyInstaller, running Flask requires disabling the reloader
-    app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
+    app.run(host='127.0.0.1', port=active_port, debug=False, use_reloader=False)
