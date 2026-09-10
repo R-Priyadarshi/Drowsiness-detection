@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="{{ url_for('static', filename='chart.js') }}"></script>
     <style>
         :root {
             --bg-color: #0f172a;
@@ -396,7 +396,7 @@
         }
         .toolbar-toggle:hover { background: rgba(255,255,255,0.2); }
         .toolbar { position: relative; bottom: 0; left: 0; transform: none; transition: all 0.3s ease; }
-        .toolbar.collapsed { opacity: 0; transform: translateY(20px); pointer-events: none; }
+        .toolbar.collapsed .toolbar-buttons { opacity: 0; pointer-events: none; }
 
         /* Dashboard Stats */
         .dashboard {
@@ -622,7 +622,7 @@
     <div class="container" id="main-app">
         <!-- Video Feed -->
         <div class="video-container">
-            <img src="" data-src="{{ url_for('video_feed') }}" alt="Camera Feed" id="video-feed">
+            <img src="" data-src="{{ url_for('video_feed') }}" alt="Camera Feed" id="video-feed" crossorigin="anonymous">
             
             <!-- Calibration Overlay -->
             <div id="calibration-overlay" class="calibration-overlay">
@@ -665,8 +665,8 @@
         <!-- Dashboard -->
         <div class="dashboard" id="dashboard-container">
             <div class="header">
-                <h1>Drowsiness Detector</h1>
-                <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 4px;">AI-Powered Driver Safety System</p>
+                <h1>Real-Time Telemetry</h1>
+                
             </div>
 
             <!-- Score Card -->
@@ -1016,17 +1016,14 @@
 
         // Landing Page Initialization
         function initializeSystem() {
-            // Hide landing page
-            document.getElementById('landing-page').classList.add('hidden');
-            
-            // Show dashboard
-            document.getElementById('main-app').classList.add('visible');
-            
-            // Trigger video feed (camera light turns on now)
-            const videoElement = document.getElementById('video-feed');
-            videoElement.src = videoElement.getAttribute('data-src');
+            fetch('/start_system', { method: 'POST' }).then(() => {
+                document.getElementById('landing-page').classList.add('hidden');
+                document.getElementById('main-app').classList.add('visible');
+                const videoElement = document.getElementById('video-feed');
+                videoElement.src = videoElement.getAttribute('data-src') + "?" + new Date().getTime();
+            });
         }
-        
+
         function endDrive() {
             fetch('/stop_system', { method: 'POST' })
                 .then(res => res.json())
@@ -1143,6 +1140,11 @@
         // We use a hidden canvas to sample the pixel color from the video stream
         const hoverCanvas = document.createElement('canvas');
         const hoverCtx = hoverCanvas.getContext('2d', { willReadFrequently: true });
+        
+        
+        function rgbToHex(r, g, b) {
+            return ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+        }
         
         videoFeed.addEventListener('mousemove', (e) => {
             if (isDragging) return; // Don't sample while dragging

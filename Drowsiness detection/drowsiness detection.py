@@ -23,10 +23,16 @@ def resource_path(relative_path):
 app = Flask(__name__, template_folder=resource_path('templates'))
 
 # Initialize Audio
-mixer.init()
-sound = mixer.Sound(resource_path("alarm.mp3"))
-sound_distracted = mixer.Sound(resource_path("distracted.wav"))
-sound_yawn = mixer.Sound(resource_path("yawn.wav"))
+sound = None
+sound_distracted = None
+sound_yawn = None
+try:
+    mixer.init()
+    sound = mixer.Sound(resource_path("alarm.mp3"))
+    sound_distracted = mixer.Sound(resource_path("distracted.wav"))
+    sound_yawn = mixer.Sound(resource_path("yawn.wav"))
+except Exception as e:
+    print(f"Warning: Audio device could not be initialized. Running in silent mode. Error: {e}")
 
 # Initialize Mediapipe
 mp_face_mesh = mp.solutions.face_mesh
@@ -237,6 +243,7 @@ def generate_frames():
 
         for (x, y, w, h) in right_eye:
             r_eye = frame[y:y + h, x:x + w]
+            if r_eye.size == 0: continue
             r_eye_gray = cv2.cvtColor(r_eye, cv2.COLOR_BGR2GRAY)
             r_eye_24 = cv2.resize(r_eye_gray, (24, 24))
             r_eye_disp = r_eye_24.copy()
@@ -254,6 +261,7 @@ def generate_frames():
 
         for (x, y, w, h) in left_eye:
             l_eye = frame[y:y + h, x:x + w]
+            if l_eye.size == 0: continue
             l_eye_gray = cv2.cvtColor(l_eye, cv2.COLOR_BGR2GRAY)
             l_eye_24 = cv2.resize(l_eye_gray, (24, 24))
             l_eye_disp = l_eye_24.copy()
@@ -345,8 +353,13 @@ def generate_frames():
         # We don't use cv2.imshow anymore. Encode for web MJPEG stream.
         ret, buffer = cv2.imencode('.jpg', frame)
         frame_bytes = buffer.tobytes()
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        try:
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        except GeneratorExit:
+            break
+        except Exception:
+            break
                
     cap.release()
 
@@ -356,7 +369,9 @@ def index():
 
 @app.route('/video_feed')
 def video_feed():
-    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    res = Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    res.headers['Access-Control-Allow-Origin'] = '*'
+    return res
 
 @app.route('/status')
 def status():
@@ -397,6 +412,34 @@ def update_settings():
     if 'iot_webhook_url' in data:
         iot_webhook_url = data['iot_webhook_url']
     return jsonify({"status": "success", "iot_webhook_url": iot_webhook_url})
+
+
+@app.route('/start_system', methods=['POST'])
+def start_system():
+    global session_start_time, total_alarms_prevented, yawn_count, score
+    global bpm, is_stressed, system_running, distraction_score, yawn_score, stress_score
+    global is_calibrating, calibration_frames, baseline_mar, baseline_brow_dist, rppg_buffer
+    
+    # Reset all analytics
+    session_start_time = time.time()
+    total_alarms_prevented = 0
+    yawn_count = 0
+    score = 0
+    distraction_score = 0
+    yawn_score = 0
+    stress_score = 0
+    bpm = 0
+    is_stressed = False
+    
+    # Reset calibration
+    is_calibrating = True
+    calibration_frames = 0
+    baseline_mar = 0.0
+    baseline_brow_dist = 0.0
+    rppg_buffer = []
+    
+    system_running = True
+    return jsonify({'status': 'success'})
 
 @app.route('/stop_system', methods=['POST'])
 def stop_system():
