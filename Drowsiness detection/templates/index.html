@@ -448,6 +448,58 @@
         }
         
         .calibration-text {
+            font-size: 2rem;
+            font-weight: 800;
+            color: #fff;
+            letter-spacing: 2px;
+            margin-bottom: 20px;
+        }
+
+        /* IoT Smart Cabin Overlay */
+        .iot-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 0, 0, 0.4);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 60;
+            backdrop-filter: blur(8px);
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s ease;
+        }
+
+        .iot-overlay.visible {
+            opacity: 1;
+            visibility: visible;
+            animation: strobe 0.3s infinite alternate;
+        }
+
+        .iot-text {
+            font-size: 2.5rem;
+            font-weight: 900;
+            color: #fff;
+            text-align: center;
+            text-shadow: 0 0 20px #ff0000;
+            text-transform: uppercase;
+        }
+        
+        .iot-subtext {
+            font-size: 1.2rem;
+            color: #ffcccc;
+            font-weight: bold;
+            margin-top: 10px;
+            letter-spacing: 1px;
+        }
+
+        @keyframes strobe {
+            0% { background: rgba(255, 0, 0, 0.4); box-shadow: inset 0 0 50px red; }
+            100% { background: rgba(255, 0, 0, 0.8); box-shadow: inset 0 0 150px red; }
+        }
+    </style>
+</head>
             color: #00ff88;
             font-size: 2rem;
             letter-spacing: 2px;
@@ -478,10 +530,20 @@
         <!-- Video Feed -->
         <div class="video-container">
             <img src="" data-src="{{ url_for('video_feed') }}" alt="Camera Feed" id="video-feed">
-            <div class="calibration-overlay" id="calibration-overlay">
-                <div class="calibration-text">Calibrating AI</div>
-                <div class="calibration-subtext">Please look straight ahead naturally...</div>
+            
+            <!-- Calibration Overlay -->
+            <div id="calibration-overlay" class="calibration-overlay">
+                <div class="calibration-text">CALIBRATING AI</div>
+                <div style="font-size: 1rem; color: #aaa;">Analyzing Baseline Facial Geometry</div>
+                <div style="margin-top: 15px; width: 50px; height: 50px; border: 4px solid rgba(255,255,255,0.2); border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite;"></div>
             </div>
+
+            <!-- IoT Overlay -->
+            <div id="iot-overlay" class="iot-overlay">
+                <div class="iot-text">EMERGENCY WAKE</div>
+                <div class="iot-subtext">SMART CABIN TRIGGERED: WINDOWS DOWN | AC MAX</div>
+            </div>
+
             <div class="status-overlay">
                 <div class="status-dot" id="status-dot"></div>
                 <span id="status-text">Active</span>
@@ -595,7 +657,8 @@
                             document.body.classList.add('danger-state');
                         } else if (data.is_stressed) {
                             statusText.textContent = "STRESSED/ANGRY";
-                            statusDot.style.background = "#8a2be2"; // Purple for road rage
+                            statusDot.style.background = "#9c27b0";
+                            statusDot.style.boxShadow = "0 0 15px #9c27b0";
                             document.body.classList.remove('danger-state');
                         } else if (data.is_distracted) {
                             statusText.textContent = "DISTRACTED";
@@ -613,6 +676,14 @@
                             statusText.textContent = "Active & Awake";
                             statusDot.style.background = "#00ff88";
                             document.body.classList.remove('danger-state');
+                        }
+
+                        // Handle IoT UI
+                        const iotOverlay = document.getElementById('iot-overlay');
+                        if (data.iot_triggered && scoreValue > 30) {
+                            iotOverlay.classList.add('visible');
+                        } else {
+                            iotOverlay.classList.remove('visible');
                         }
                     }
                 })
