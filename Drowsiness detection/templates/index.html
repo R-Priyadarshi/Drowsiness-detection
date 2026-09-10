@@ -1151,13 +1151,25 @@
             });
         }
 
+
         function initializeSystem() {
+            const initBtn = document.getElementById('init-btn');
+            initBtn.disabled = true;
+            initBtn.style.opacity = '0.5';
+            
             fetch('/start_system', { method: 'POST' }).then(() => {
                 document.getElementById('landing-page').classList.add('hidden');
                 document.getElementById('main-app').classList.add('visible');
                 document.getElementById('back-to-landing-btn').classList.add('visible');
+                
                 const videoElement = document.getElementById('video-feed');
                 videoElement.src = videoElement.getAttribute('data-src') + "?" + new Date().getTime();
+                
+                // Re-enable in case they go back
+                setTimeout(() => {
+                    initBtn.disabled = false;
+                    initBtn.style.opacity = '1';
+                }, 1000);
             });
         }
 

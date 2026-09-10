@@ -103,19 +103,39 @@ def trigger_smart_cabin():
         iot_triggered = True
         threading.Thread(target=_fire_webhook, daemon=True).start()
 
+
+# Global Camera Lock
+camera_lock = threading.Lock()
+
 def generate_frames():
     global score, state, r_prob, l_prob, debug_mode
     global total_alarms_prevented, yawn_count, distraction_score, yawn_score, is_yawning, is_distracted
     global is_calibrating, calibration_frames, baseline_mar, baseline_brow_dist, is_stressed, stress_score, rppg_buffer, bpm
     global iot_triggered, last_iot_trigger_time, iot_webhook_url
-    cap = cv2.VideoCapture(0)
     
-    while True:
-        if not system_running:
-            break
-        ret, frame = cap.read()
-        if not ret:
-            break
+    with camera_lock:
+        cap = cv2.VideoCapture(0)
+        # Give camera time to warm up
+        time.sleep(0.5)
+        
+        while system_running:
+            ret, frame = cap.read()
+            if not ret:
+                # Fallback: No camera frame
+                frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(frame, "NO CAMERA DETECTED", (150, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                ret, buffer = cv2.imencode('.jpg', frame)
+                yield (b'--frame
+Content-Type: image/jpeg
+
+' + buffer.tobytes() + b'
+')
+                time.sleep(1) # wait before retrying
+                # Try reconnecting
+                cap.release()
+                cap = cv2.VideoCapture(0)
+                continue
+
             
         height, width = frame.shape[:2]
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -152,14 +172,17 @@ def generate_frames():
                 continue # Skip threat detection while calibrating
                 
             # --- Yawn Calculation (Adaptive) ---
+
             if mar > baseline_mar + 0.35:
                 yawn_score += 1
                 if yawn_score > 30: yawn_score = 30 # Cap max score
                 if yawn_score > 15: # half a second
                     is_yawning = True
-                    try: sound_yawn.play()
-                    except: pass
-                    if yawn_score == 16: yawn_count += 1
+                    if yawn_score == 16: 
+                        yawn_count += 1
+                        try: sound_yawn.play()
+                        except: pass
+
             else:
                 yawn_score -= 1
                 if yawn_score < 0: yawn_score = 0
@@ -218,11 +241,14 @@ def generate_frames():
             # Face lost - looking away
             distraction_score += 1
             
+
         if distraction_score > 60: distraction_score = 60 # Cap max score
         if distraction_score > 45: # 1.5 seconds of distraction
+            if not is_distracted: # Only play sound when state changes to distracted
+                try: sound_distracted.play()
+                except: pass
             is_distracted = True
-            try: sound_distracted.play()
-            except: pass
+
         else:
             is_distracted = False
             try: sound_distracted.stop()
