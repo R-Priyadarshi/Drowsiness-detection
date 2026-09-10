@@ -188,6 +188,20 @@ def generate_frames():
             p_right = face_landmarks.landmark[308]
             mar = abs(p_upper.y - p_lower.y) / (abs(p_left.x - p_right.x) + 1e-6)
 
+            # --- Eye Aspect Ratio (EAR) Fallback ---
+            p_l_top = face_landmarks.landmark[159]
+            p_l_bot = face_landmarks.landmark[145]
+            p_l_left = face_landmarks.landmark[33]
+            p_l_right = face_landmarks.landmark[133]
+            l_ear = abs(p_l_top.y - p_l_bot.y) / (abs(p_l_left.x - p_l_right.x) + 1e-6)
+            
+            p_r_top = face_landmarks.landmark[386]
+            p_r_bot = face_landmarks.landmark[374]
+            p_r_left = face_landmarks.landmark[362]
+            p_r_right = face_landmarks.landmark[263]
+            r_ear = abs(p_r_top.y - p_r_bot.y) / (abs(p_r_left.x - p_r_right.x) + 1e-6)
+            ear = (l_ear + r_ear) / 2.0
+
             p_brow_l = face_landmarks.landmark[107]
             p_brow_r = face_landmarks.landmark[336]
             brow_dist = abs(p_brow_l.x - p_brow_r.x)
@@ -359,27 +373,38 @@ def generate_frames():
         l_detected = lpred is not None
 
         if r_detected or l_detected:
-            r_prob = float(rpred[0][0]) if r_detected else 0.0
-            l_prob = float(lpred[0][0]) if l_detected else 0.0
+            # Model outputs 1 for Open, 0 for Closed. We map to closed probability.
+            r_closed_prob = 1.0 - float(rpred[0][0]) if r_detected else 0.0
+            l_closed_prob = 1.0 - float(lpred[0][0]) if l_detected else 0.0
+            
+            r_prob = r_closed_prob # Update telemetry vars
+            l_prob = l_closed_prob
+            
+            r_is_closed = r_detected and r_closed_prob > 0.5
+            l_is_closed = l_detected and l_closed_prob > 0.5
             
             if r_detected and l_detected:
-                if r_prob >= 0.90 and l_prob >= 0.90:
+                if r_is_closed and l_is_closed:
                     state = "Closed"
                 else:
                     state = "Open"
             elif r_detected:
-                if r_prob >= 0.90:
+                if r_is_closed:
                     state = "Closed"
                 else:
                     state = "Open"
             elif l_detected:
-                if l_prob >= 0.90:
+                if l_is_closed:
                     state = "Closed"
                 else:
                     state = "Open"
         else:
             if len(faces) > 0:
-                state = "Closed"
+                # Haar cascade failed (e.g. glasses). Fallback to MediaPipe EAR
+                if 'ear' in locals() and ear < 0.22:
+                    state = "Closed"
+                else:
+                    state = "Open"
             else:
                 state = "No Face"
 
