@@ -17,6 +17,7 @@ camera_lock = threading.Lock()
 import webbrowser
 import time
 import mediapipe as mp
+import mediapipe.python.solutions.face_mesh as face_mesh_solution
 import requests
 import json
 def resource_path(relative_path):
@@ -43,7 +44,7 @@ except Exception as e:
     print(f"Warning: Audio device could not be initialized. Running in silent mode. Error: {e}")
 
 # Initialize Mediapipe
-mp_face_mesh = mp.solutions.face_mesh
+mp_face_mesh = face_mesh_solution
 face_mesh = mp_face_mesh.FaceMesh(max_num_faces=1, refine_landmarks=True, min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
 # Initialize Cascades
@@ -163,7 +164,13 @@ def generate_frames():
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
         # Mediapipe Face Mesh for Head Pose & Yawning
-        results = face_mesh.process(rgb_frame)
+        try:
+            results = face_mesh.process(rgb_frame)
+        except Exception:
+            class DummyResults:
+                multi_face_landmarks = None
+            results = DummyResults()
+            
         if results.multi_face_landmarks:
             is_distracted = False
             distraction_score -= 1
