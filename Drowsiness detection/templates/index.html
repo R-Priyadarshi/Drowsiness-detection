@@ -95,18 +95,16 @@
         }
 
         body {
+            margin: 0;
+            padding: 0;
             font-family: 'Inter', sans-serif;
             background-color: var(--bg-color);
             color: var(--text-main);
             min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
             background-image: 
                 radial-gradient(circle at 15% 50%, rgba(56, 189, 248, 0.1), transparent 25%),
                 radial-gradient(circle at 85% 30%, rgba(239, 68, 68, 0.05), transparent 25%);
-            overflow: hidden;
+            overflow-x: hidden;
         }
 
         /* Minimal God-Tier Landing Page */
@@ -117,11 +115,31 @@
             z-index: 9999;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            overflow-y: auto;
+            overflow-x: hidden;
             transition: opacity 1.5s ease, visibility 1.5s;
             color: #ffffff;
             font-family: 'Inter', sans-serif;
+        }
+
+        .landing-wrapper::before {
+            content: '';
+            flex: 0 1 auto;
+        }
+
+        .landing-wrapper::after {
+            content: '';
+            flex: 1 1 auto;
+        }
+
+        .landing-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            max-width: 1200px;
+            padding: 10px 20px 40px 20px;
+            margin: 0 auto;
         }
 
         .landing-wrapper.hidden {
@@ -131,17 +149,17 @@
 
 
         .logo-img {
-            width: 140px;
+            width: 350px;
             height: auto;
-            margin-bottom: 30px;
-            border-radius: 20px;
-            box-shadow: 0 0 30px rgba(56, 189, 248, 0.2);
-            animation: pulse-glow 3s infinite alternate;
+            margin-top: -30px;
+            margin-bottom: 10px;
+            mix-blend-mode: screen;
+            animation: pulse-logo 4s infinite alternate;
         }
 
-        @keyframes pulse-glow {
-            0% { box-shadow: 0 0 20px rgba(56, 189, 248, 0.1); transform: scale(1); }
-            100% { box-shadow: 0 0 50px rgba(56, 189, 248, 0.4); transform: scale(1.02); }
+        @keyframes pulse-logo {
+            0% { transform: scale(1); filter: brightness(1); }
+            100% { transform: scale(1.05); filter: brightness(1.3); }
         }
 
         .feature-grid {
@@ -179,6 +197,38 @@
             font-size: 0.8rem;
             color: #94a3b8;
             line-height: 1.5;
+        }
+
+        .system-specs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px 60px;
+            margin-bottom: 50px;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 20px 40px;
+            border-radius: 12px;
+            max-width: 800px;
+            text-align: left;
+        }
+
+        .spec-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .spec-label {
+            font-size: 0.65rem;
+            color: #555;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        .spec-value {
+            font-size: 0.85rem;
+            color: #ddd;
+            font-family: monospace;
         }
 
         .landing-title {
@@ -236,12 +286,25 @@
         }
 
         .landing-footer {
-            position: absolute;
-            bottom: 40px;
-            font-size: 0.7rem;
-            color: #555;
-            letter-spacing: 3px;
+            margin-top: 40px;
+            font-size: 0.75rem;
+            color: #666;
+            letter-spacing: 4px;
             text-transform: uppercase;
+        }
+
+        .app-wrapper {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px 20px;
+        }
+        
+        .app-wrapper::before,
+        .app-wrapper::after {
+            content: '';
+            flex: 1 1 auto;
         }
 
         .container {
@@ -252,8 +315,7 @@
             grid-template-columns: 2fr 1fr;
             gap: 24px;
             max-width: 1200px;
-            width: 95%;
-            padding: 24px;
+            width: 100%;
             background: var(--panel-bg);
             backdrop-filter: blur(16px);
             border: 1px solid rgba(255,255,255,0.1);
@@ -274,6 +336,7 @@
             background: #000;
             border: 2px solid rgba(255,255,255,0.05);
             box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            min-width: 0;
         }
 
         .video-container img {
@@ -493,6 +556,7 @@
             display: flex;
             flex-direction: column;
             gap: 24px;
+            min-width: 0;
         }
 
         .header {
@@ -630,6 +694,8 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
+            text-align: center;
+            padding: 0 20px;
             z-index: 50;
             backdrop-filter: blur(5px);
             opacity: 0;
@@ -643,11 +709,12 @@
         }
         
         .calibration-text {
-            font-size: 2rem;
+            font-size: clamp(1.2rem, 5vw, 2rem);
             font-weight: 800;
             color: #fff;
             letter-spacing: 2px;
             margin-bottom: 20px;
+            word-wrap: break-word;
         }
 
         /* IoT Smart Cabin Overlay */
@@ -702,35 +769,55 @@
     <div class="landing-wrapper" id="landing-page">
         <!-- Optional animated particles background if desired, but we will keep it CSS for now -->
         
-        <img src="{{ url_for('static', filename='logo.jpg') }}" class="logo-img" alt="AURA Logo">
-        
-        <h1 class="landing-title">Aura</h1>
-        <p class="landing-desc" style="font-size: 1.1rem; color: #fff; font-weight: 500; margin-bottom: 12px; letter-spacing: 2px;">
-            THE NEXT GENERATION OF COGNITIVE TELEMETRY
-        </p>
-        <p class="landing-desc" style="margin-bottom: 40px;">
-            Powered by Haar Cascade Classifiers and a Convolutional Neural Network.<br>
-            Engineered with dual-eye 90% confidence verification.
-        </p>
-        
-        <div class="feature-grid">
-            <div class="feature-card">
-                <h3>Neural Vision</h3>
-                <p>Real-time multi-point facial landmark extraction.</p>
+        <div class="landing-content">
+            <img src="{{ url_for('static', filename='logo.jpg') }}" class="logo-img" alt="AURA Logo">
+            
+            <h1 class="landing-title">Aura</h1>
+            <p class="landing-desc" style="font-size: 1.1rem; color: #fff; font-weight: 500; margin-bottom: 12px; letter-spacing: 2px;">
+                THE NEXT GENERATION OF COGNITIVE TELEMETRY
+            </p>
+            <p class="landing-desc" style="margin-bottom: 40px;">
+                Powered by Haar Cascade Classifiers and a Convolutional Neural Network.<br>
+                Engineered with dual-eye 90% confidence verification.
+            </p>
+            
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <h3>Neural Vision</h3>
+                    <p>Real-time multi-point facial landmark extraction.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>Threat Analysis</h3>
+                    <p>Continuous rPPG and blink-rate threat scoring.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>Offline Core</h3>
+                    <p>100% localized processing with zero latency.</p>
+                </div>
             </div>
-            <div class="feature-card">
-                <h3>Threat Analysis</h3>
-                <p>Continuous rPPG and blink-rate threat scoring.</p>
-            </div>
-            <div class="feature-card">
-                <h3>Offline Core</h3>
-                <p>100% localized processing with zero latency.</p>
-            </div>
-        </div>
 
-        <button id="init-btn" class="init-btn" onclick="initializeSystem()">Initialize System</button>
-        <div class="landing-footer">Built by - R Priyadarshi</div>
-    </div>
+            <div class="system-specs">
+                <div class="spec-item">
+                    <span class="spec-label">CORE ARCHITECTURE</span>
+                    <span class="spec-value">Keras Sequential CNN + OpenCV Haar Cascades</span>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">SYSTEM LATENCY</span>
+                    <span class="spec-value">< 16ms (60 FPS Target)</span>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">DATA PRIVACY</span>
+                    <span class="spec-value">100% Local Processing (Air-gapped)</span>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">FAILSAFE PROTOCOL</span>
+                    <span class="spec-value">Auto-failover MJPEG Stream</span>
+                </div>
+            </div>
+
+            <button id="init-btn" class="init-btn" onclick="initializeSystem()">Initialize System</button>
+            <div class="landing-footer">Built by - R Priyadarshi</div>
+        </div>
     </div>
 
     
@@ -742,7 +829,8 @@
         </svg>
     </button>
 
-    <div class="container" id="main-app">
+    <div class="app-wrapper">
+        <div class="container" id="main-app">
         <!-- Video Feed -->
         <div class="video-container">
             <img src="" data-src="{{ url_for('video_feed') }}" alt="Camera Feed" id="video-feed" crossorigin="anonymous">
@@ -847,6 +935,7 @@
                 <div style="font-size: 1.2rem; font-weight: 600;" id="system-state">Open</div>
             </div>
         </div>
+    </div>
     </div>
 
     <!-- Trip Report Modal -->
@@ -1152,15 +1241,24 @@
         }
 
         function initializeSystem() {
+            const initBtn = document.getElementById('init-btn');
+            initBtn.disabled = true;
+            initBtn.style.opacity = '0.5';
+            
             fetch('/start_system', { method: 'POST' }).then(() => {
                 document.getElementById('landing-page').classList.add('hidden');
                 document.getElementById('main-app').classList.add('visible');
                 document.getElementById('back-to-landing-btn').classList.add('visible');
+                
                 const videoElement = document.getElementById('video-feed');
                 videoElement.src = videoElement.getAttribute('data-src') + "?" + new Date().getTime();
+                
+                setTimeout(() => {
+                    initBtn.disabled = false;
+                    initBtn.style.opacity = '1';
+                }, 1000);
             });
         }
-
         function endDrive() {
             fetch('/stop_system', { method: 'POST' })
                 .then(res => res.json())
