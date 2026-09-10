@@ -494,6 +494,19 @@
             }
         }
         
+        
+        .calibration-text {
+            color: #00ff88;
+            font-size: 2rem;
+            letter-spacing: 2px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+        .calibration-subtext {
+            color: #ccc;
+            font-size: 1rem;
+        }
+
         /* Calibration Overlay */
         .calibration-overlay {
             position: absolute;
@@ -568,19 +581,6 @@
         }
     </style>
 </head>
-            color: #00ff88;
-            font-size: 2rem;
-            letter-spacing: 2px;
-            margin-bottom: 10px;
-            text-transform: uppercase;
-        }
-        
-        .calibration-subtext {
-            color: #ccc;
-            font-size: 1rem;
-        }
-    </style>
-</head>
 <body>
 
     <!-- Minimal God-Tier Landing Page -->
@@ -597,7 +597,7 @@
     <div class="container" id="main-app">
         <!-- Video Feed -->
         <div class="video-container">
-            <img src="" data-src="{{ url_for('video_feed') }}" alt="Camera Feed" id="video-feed">
+            <img src="" data-src="{{ url_for('video_feed') }}" alt="Camera Feed" id="video-feed" crossorigin="anonymous">
             
             <!-- Calibration Overlay -->
             <div id="calibration-overlay" class="calibration-overlay">
@@ -639,7 +639,7 @@
             </div>
 
             <!-- Score Card -->
-            <div class="card">
+            <div class="card" draggable="true">
                 <div class="card-title">Drowsiness Score</div>
                 <div class="score-value" id="score-val">0</div>
                 <div class="progress-bar-bg">
@@ -649,26 +649,36 @@
                     <span>0 (Awake)</span>
                     <span>30 (Alarm)</span>
                 </div>
+                <div class="chart-container"><canvas id="scoreChart"></canvas></div>
+            </div>
+                <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 0.75rem; color: var(--text-muted);">
+                    <span>0 (Awake)</span>
+                    <span>30 (Alarm)</span>
+                </div>
             </div>
 
             <!-- Eye & Heart Stats -->
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;">
-                <div class="card eye-card">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="card eye-card" draggable="true">
                     <div class="eye-label">L-Eye Close Prob</div>
                     <div class="eye-val" id="left-eye-val">0.00</div>
                 </div>
-                <div class="card eye-card">
+                <div class="card eye-card" draggable="true">
                     <div class="eye-label">R-Eye Close Prob</div>
                     <div class="eye-val" id="right-eye-val">0.00</div>
                 </div>
-                <div class="card eye-card">
-                    <div class="eye-label">Heart Rate (rPPG)</div>
-                    <div class="eye-val" id="bpm-val" style="color: #ff44aa;">-- BPM</div>
+            </div>
+            
+            <div class="card" draggable="true">
+                <div class="card-title">Heart Rate (rPPG)</div>
+                <div class="score-value" id="bpm-val" style="color: #ef4444; display: flex; align-items: center; gap: 10px;">
+                    -- <span style="font-size: 1rem; color: #ffcccc;">BPM</span>
                 </div>
+                <div class="chart-container"><canvas id="bpmChart"></canvas></div>
             </div>
             
             <!-- System State Card -->
-            <div class="card" style="margin-top: auto;">
+            <div class="card" draggable="true" style="margin-top: auto;">
                 <div class="card-title">Current State</div>
                 <div style="font-size: 1.2rem; font-weight: 600;" id="system-state">Open</div>
             </div>
@@ -702,7 +712,22 @@
             fetch('/status')
                 .then(response => response.json())
                 .then(data => {
+                    
                     scoreVal.textContent = data.score;
+                    // Update Charts
+                    if (typeof scoreChart !== 'undefined') {
+                        const sData = scoreChart.data.datasets[0].data;
+                        sData.push(data.score);
+                        sData.shift();
+                        scoreChart.update();
+                    }
+                    if (typeof bpmChart !== 'undefined' && data.bpm > 0) {
+                        const bData = bpmChart.data.datasets[0].data;
+                        bData.push(data.bpm);
+                        bData.shift();
+                        bpmChart.update();
+                    }
+
                     leftEyeVal.textContent = data.l_prob.toFixed(2);
                     rightEyeVal.textContent = data.r_prob.toFixed(2);
                     scoreBar.style.width = Math.min(100, (data.score / 30) * 100) + '%';
@@ -748,7 +773,7 @@
 
                         // Handle IoT UI
                         const iotOverlay = document.getElementById('iot-overlay');
-                        if (data.iot_triggered && scoreValue > 30) {
+                        if (data.iot_triggered && data.score > 30) {
                             iotOverlay.classList.add('visible');
                         } else {
                             iotOverlay.classList.remove('visible');
@@ -1084,15 +1109,22 @@
             }
             
             // Draw current frame to hidden canvas
-            hoverCtx.drawImage(videoFeed, 0, 0, hoverCanvas.width, hoverCanvas.height);
-            // Read exactly 1 pixel
-            const pixel = hoverCtx.getImageData(x, y, 1, 1).data;
-            
-            pixelInfo.innerHTML = `
-                <span>(x=${x.toString().padStart(3, ' ')}, y=${y.toString().padStart(3, ' ')})</span>
-                <span>~</span>
-                <span><span style="color: #ff4444">R:${pixel[0].toString().padStart(3, ' ')}</span> <span style="color: #44ff44">G:${pixel[1].toString().padStart(3, ' ')}</span> <span style="color: #4488ff">B:${pixel[2].toString().padStart(3, ' ')}</span></span>
-            `;
+            try {
+                hoverCtx.drawImage(videoFeed, 0, 0, hoverCanvas.width, hoverCanvas.height);
+                const pixel = hoverCtx.getImageData(x, y, 1, 1).data;
+                
+                pixelInfo.innerHTML = `
+                    <span>(x=${x.toString().padStart(3, ' ')}, y=${y.toString().padStart(3, ' ')})</span>
+                    <span>~</span>
+                    <span><span style="color: #ff4444">R:${pixel[0].toString().padStart(3, ' ')}</span> <span style="color: #44ff44">G:${pixel[1].toString().padStart(3, ' ')}</span> <span style="color: #4488ff">B:${pixel[2].toString().padStart(3, ' ')}</span></span>
+                `;
+            } catch (err) {
+                pixelInfo.innerHTML = `
+                    <span>(x=${x.toString().padStart(3, ' ')}, y=${y.toString().padStart(3, ' ')})</span>
+                    <span>~</span>
+                    <span style="color: #999;">R:--- G:--- B:--- (CORS block)</span>
+                `;
+            }
         });
     </script>
 </body>
