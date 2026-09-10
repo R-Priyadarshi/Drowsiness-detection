@@ -101,15 +101,39 @@
         .toolbar {
             position: absolute;
             bottom: 20px;
-            right: 20px;
+            left: 50%;
+            transform: translateX(-50%);
             display: flex;
             gap: 12px;
-            background: rgba(0,0,0,0.6);
-            backdrop-filter: blur(8px);
-            padding: 8px 16px;
-            border-radius: 30px;
-            border: 1px solid rgba(255,255,255,0.1);
+            padding: 12px 24px;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             z-index: 10;
+        }
+
+        .pixel-info-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: rgba(20, 20, 20, 0.85);
+            color: #ddd;
+            font-family: monospace;
+            font-size: 0.85rem;
+            padding: 4px 8px;
+            border-top: 1px solid #333;
+            z-index: 5;
+            display: flex;
+            gap: 16px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        
+        .video-container:hover .pixel-info-bar {
+            opacity: 1;
         }
 
         .tool-btn {
@@ -278,6 +302,11 @@
                 <button class="tool-btn" onclick="zoomOut()" title="Zoom Out">➖</button>
                 <button class="tool-btn" onclick="resetZoom()" title="Reset Zoom">🔄</button>
                 <button class="tool-btn" onclick="saveSnapshot()" title="Save Snapshot">💾</button>
+            </div>
+            <div class="pixel-info-bar" id="pixel-info">
+                <span>(x=---, y=---)</span>
+                <span>~</span>
+                <span><span style="color: #ff4444">R:---</span> <span style="color: #44ff44">G:---</span> <span style="color: #4488ff">B:---</span></span>
             </div>
         </div>
 
@@ -456,6 +485,45 @@
                 })
                 .catch(err => console.error("Error toggling debug:", err));
         }
+
+        // Pixel Hover Info
+        const pixelInfo = document.getElementById('pixel-info');
+        // We use a hidden canvas to sample the pixel color from the video stream
+        const hoverCanvas = document.createElement('canvas');
+        const hoverCtx = hoverCanvas.getContext('2d', { willReadFrequently: true });
+        
+        videoFeed.addEventListener('mousemove', (e) => {
+            if (isDragging) return; // Don't sample while dragging
+            
+            const rect = videoFeed.getBoundingClientRect();
+            // Calculate natural coordinates taking zoom and pan into account
+            const scaleX = (videoFeed.naturalWidth || 640) / (rect.width / currentZoom);
+            const scaleY = (videoFeed.naturalHeight || 480) / (rect.height / currentZoom);
+            
+            // Mouse pos relative to the visible video rect, adjusted for panning
+            let x = (e.clientX - rect.left - (translateX * currentZoom)) * scaleX;
+            let y = (e.clientY - rect.top - (translateY * currentZoom)) * scaleY;
+            
+            x = Math.max(0, Math.min(Math.floor(x), (videoFeed.naturalWidth || 640) - 1));
+            y = Math.max(0, Math.min(Math.floor(y), (videoFeed.naturalHeight || 480) - 1));
+
+            // Setup canvas size if not already set
+            if(hoverCanvas.width !== (videoFeed.naturalWidth || 640)) {
+                hoverCanvas.width = videoFeed.naturalWidth || 640;
+                hoverCanvas.height = videoFeed.naturalHeight || 480;
+            }
+            
+            // Draw current frame to hidden canvas
+            hoverCtx.drawImage(videoFeed, 0, 0, hoverCanvas.width, hoverCanvas.height);
+            // Read exactly 1 pixel
+            const pixel = hoverCtx.getImageData(x, y, 1, 1).data;
+            
+            pixelInfo.innerHTML = `
+                <span>(x=${x.toString().padStart(3, ' ')}, y=${y.toString().padStart(3, ' ')})</span>
+                <span>~</span>
+                <span><span style="color: #ff4444">R:${pixel[0].toString().padStart(3, ' ')}</span> <span style="color: #44ff44">G:${pixel[1].toString().padStart(3, ' ')}</span> <span style="color: #4488ff">B:${pixel[2].toString().padStart(3, ' ')}</span></span>
+            `;
+        });
     </script>
 </body>
 </html>
